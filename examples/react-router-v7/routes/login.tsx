@@ -1,5 +1,5 @@
-import * as React from "react";
-import { LoginForm, PasskeyLoginButton } from "../../../src/react/index.js";
+import * as React from 'react';
+import { LoginForm, PasskeyLoginButton } from '../../../src/react/index.js';
 
 export function LoginRoute() {
   return (
@@ -9,13 +9,13 @@ export function LoginRoute() {
       <LoginForm
         onSubmit={async ({ identifier, password }) => {
           // Your RR action would typically handle this. This is just illustrative.
-          const res = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "content-type": "application/x-www-form-urlencoded" },
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({ identifier, password }),
-            credentials: "include",
+            credentials: 'include'
           });
-          if (!res.ok) throw new Error("Login failed");
+          if (!res.ok) throw new Error('Login failed');
         }}
       />
 
@@ -25,11 +25,9 @@ export function LoginRoute() {
         loginStartUrl="/api/passkeys/login/start"
         loginFinishUrl="/api/passkeys/login/finish"
         onSuccess={() => {
-          window.location.assign("/");
+          window.location.assign('/');
         }}
       />
     </div>
   );
 }
-
-
