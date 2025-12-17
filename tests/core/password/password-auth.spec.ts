@@ -37,6 +37,10 @@ function makeMemoryStorage(): {
         sessionsByHash.set(session.tokenHash as any, session);
       },
       getSessionByTokenHash: async (tokenHash) => sessionsByHash.get(tokenHash as any) ?? null,
+      touchSession: async (tokenHash, lastSeenAt) => {
+        const s = sessionsByHash.get(tokenHash as any);
+        if (s && !s.revokedAt) s.lastSeenAt = lastSeenAt;
+      },
       revokeSession: async (tokenHash, revokedAt) => {
         const s = sessionsByHash.get(tokenHash as any);
         if (s) s.revokedAt = revokedAt;

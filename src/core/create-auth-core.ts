@@ -10,6 +10,7 @@ import type {
   PasswordRegisterResult,
   SessionToken,
   SessionTokenHash,
+  UserId,
 } from "./auth-types.js";
 import { loginWithPassword, registerWithPassword } from "./password/password-auth.js";
 import type { Argon2Params } from "./password/password-hash.js";
@@ -32,6 +33,8 @@ import {
 } from "./passkey/passkey-auth.js";
 import type { RedeemBackupCodeInput, RedeemBackupCodeResult, RotateBackupCodesInput, RotateBackupCodesResult } from "./backup-codes/backup-code-types.js";
 import { redeemBackupCode, rotateBackupCodes } from "./backup-codes/backup-codes.js";
+import type { RevokeSessionInput, RevokeSessionResult, ValidateSessionInput, ValidateSessionResult } from "./sessions/session-types.js";
+import { revokeAllUserSessions, revokeSession, validateSession } from "./sessions/sessions.js";
 
 export type RandomBytesFn = (size: number) => Uint8Array;
 export type Clock = { now: () => Date };
@@ -102,6 +105,9 @@ export type AuthCore = {
   finishPasskeyLogin(input: PasskeyLoginFinishInput): Promise<PasskeyLoginFinishResult>;
   rotateBackupCodes(input: RotateBackupCodesInput): Promise<RotateBackupCodesResult>;
   redeemBackupCode(input: RedeemBackupCodeInput): Promise<RedeemBackupCodeResult>;
+  validateSession(input: ValidateSessionInput): Promise<ValidateSessionResult>;
+  revokeSession(input: RevokeSessionInput): Promise<RevokeSessionResult>;
+  revokeAllUserSessions(userId: UserId): Promise<void>;
 };
 
 export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
@@ -221,6 +227,28 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         storage: options.storage,
         now: () => clock.now(),
         backupCodeHashSecret: options.backupCodeHashSecret,
+      }),
+    validateSession: async (input) =>
+      validateSession({
+        input,
+        storage: options.storage,
+        policy,
+        now: () => clock.now(),
+        hashSessionToken,
+        createSessionToken,
+      }),
+    revokeSession: async (input) =>
+      revokeSession({
+        input,
+        storage: options.storage,
+        now: () => clock.now(),
+        hashSessionToken,
+      }),
+    revokeAllUserSessions: async (userId) =>
+      revokeAllUserSessions({
+        userId,
+        storage: options.storage,
+        now: () => clock.now(),
       }),
   };
 }

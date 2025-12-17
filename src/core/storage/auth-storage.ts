@@ -96,6 +96,11 @@ export type AuthStorage = {
   sessions: {
     createSession(session: SessionRecord): Promise<void>;
     getSessionByTokenHash(tokenHash: SessionTokenHash): Promise<SessionRecord | null>;
+    /**
+     * Update lastSeenAt (sliding session) without rotating the token.
+     * Should be a no-op if the session doesn't exist or is revoked/expired (implementation-defined).
+     */
+    touchSession(tokenHash: SessionTokenHash, lastSeenAt: Date): Promise<void>;
     revokeSession(tokenHash: SessionTokenHash, revokedAt: Date): Promise<void>;
     revokeAllUserSessions(userId: UserId, revokedAt: Date): Promise<void>;
     /**

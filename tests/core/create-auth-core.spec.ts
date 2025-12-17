@@ -17,6 +17,7 @@ const noopStorage = {
   sessions: {
     createSession: async () => undefined,
     getSessionByTokenHash: async () => null,
+    touchSession: async () => undefined,
     revokeSession: async () => undefined,
     revokeAllUserSessions: async () => undefined,
     rotateSession: async () => undefined,
