@@ -1,10 +1,10 @@
-import type { AuthCore } from "../../core/create-auth-core.js";
-import { AuthError, isAuthError } from "../../core/auth-error.js";
-import type { SessionToken } from "../../core/auth-types.js";
-import type { ValidateSessionResult } from "../../core/sessions/session-types.js";
-import type { CookieOptions } from "./cookies.js";
-import { getCookie, serializeCookie, serializeDeleteCookie } from "./cookies.js";
-import { assertSameOrigin, json, readForm, readJson, redirect } from "./http.js";
+import type { AuthCore } from '../../core/create-auth-core.js';
+import { AuthError, isAuthError } from '../../core/auth-error.js';
+import type { SessionToken } from '../../core/auth-types.js';
+import type { ValidateSessionResult } from '../../core/sessions/session-types.js';
+import type { CookieOptions } from './cookies.js';
+import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
+import { assertSameOrigin, json, readForm, readJson, redirect } from './http.js';
 
 export type ReactRouterAuthAdapterOptions = {
   core: AuthCore;
@@ -65,73 +65,97 @@ export type ReactRouterAuthAdapter = {
   };
 };
 
-export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOptions): ReactRouterAuthAdapter {
+export function createReactRouterAuthAdapter(
+  options: ReactRouterAuthAdapterOptions
+): ReactRouterAuthAdapter {
   const allowedOrigins = options.csrf?.allowedOrigins ?? options.core.policy.passkey.origins;
   const csrfEnabled = options.csrf?.enabled ?? true;
   const totpPendingCookie: CookieOptions = options.totpPendingCookie ?? {
-    name: "totp",
-    path: "/",
+    name: 'totp',
+    path: '/',
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
-    maxAgeSeconds: 60 * 5,
+    sameSite: 'lax',
+    maxAgeSeconds: 60 * 5
   };
-  const twoFactorRedirectTo = options.twoFactorRedirectTo ?? "/two-factor";
+  const twoFactorRedirectTo = options.twoFactorRedirectTo ?? '/two-factor';
 
   const validate = async (request: Request) => {
     const headers = new Headers();
     const token = getCookie(request, options.sessionCookie.name);
-    if (!token) return { result: { ok: false, reason: "missing" } as const, headers };
+    if (!token) return { result: { ok: false, reason: 'missing' } as const, headers };
 
-    const result = await options.core.validateSession({ sessionToken: token as unknown as SessionToken });
+    const result = await options.core.validateSession({
+      sessionToken: token as unknown as SessionToken
+    });
     if (result.ok && result.rotatedSession) {
       headers.append(
-        "set-cookie",
-        serializeCookie(options.sessionCookie.name, result.rotatedSession.sessionToken as unknown as string, {
-          ...options.sessionCookie,
-        }),
+        'set-cookie',
+        serializeCookie(
+          options.sessionCookie.name,
+          result.rotatedSession.sessionToken as unknown as string,
+          {
+            ...options.sessionCookie
+          }
+        )
       );
     }
     return { result, headers };
   };
 
-  const requireUser = async (request: Request, opts: { redirectTo?: string } = {}): Promise<RequireUserResult> => {
+  const requireUser = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<RequireUserResult> => {
     const { result, headers } = await validate(request);
     if (!result.ok) {
-      throw redirect(opts.redirectTo ?? "/login");
+      throw redirect(opts.redirectTo ?? '/login');
     }
     return { userId: result.userId as unknown as string, headers };
   };
 
-  const logout = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const logout = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     const token = getCookie(request, options.sessionCookie.name);
     if (token) await options.core.revokeSession({ sessionToken: token as unknown as SessionToken });
-    const res = redirect(opts.redirectTo ?? "/login");
-    res.headers.append("set-cookie", serializeDeleteCookie(options.sessionCookie.name, { ...options.sessionCookie }));
+    const res = redirect(opts.redirectTo ?? '/login');
+    res.headers.append(
+      'set-cookie',
+      serializeDeleteCookie(options.sessionCookie.name, { ...options.sessionCookie })
+    );
     return res;
   };
 
-  const passwordLogin = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const passwordLogin = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const form = await readForm(request);
-      const identifier = String(form.get("identifier") ?? "");
-      const password = String(form.get("password") ?? "");
+      const identifier = String(form.get('identifier') ?? '');
+      const password = String(form.get('password') ?? '');
       const result = await options.core.loginPassword({ identifier, password });
-      if ("twoFactorRequired" in result && result.twoFactorRequired) {
+      if ('twoFactorRequired' in result && result.twoFactorRequired) {
         const res = redirect(twoFactorRedirectTo);
         res.headers.append(
-          "set-cookie",
-          serializeCookie(totpPendingCookie.name, result.pendingToken as unknown as string, { ...totpPendingCookie }),
+          'set-cookie',
+          serializeCookie(totpPendingCookie.name, result.pendingToken as unknown as string, {
+            ...totpPendingCookie
+          })
         );
         return res;
       }
       const { session } = result;
-      const res = redirect(opts.redirectTo ?? "/");
+      const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
-        "set-cookie",
-        serializeCookie(options.sessionCookie.name, session.sessionToken as unknown as string, { ...options.sessionCookie }),
+        'set-cookie',
+        serializeCookie(options.sessionCookie.name, session.sessionToken as unknown as string, {
+          ...options.sessionCookie
+        })
       );
       return res;
     } catch (err) {
@@ -139,17 +163,22 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
     }
   };
 
-  const passwordRegister = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const passwordRegister = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const form = await readForm(request);
-      const identifier = String(form.get("identifier") ?? "");
-      const password = String(form.get("password") ?? "");
+      const identifier = String(form.get('identifier') ?? '');
+      const password = String(form.get('password') ?? '');
       const { session } = await options.core.registerPassword({ identifier, password });
-      const res = redirect(opts.redirectTo ?? "/");
+      const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
-        "set-cookie",
-        serializeCookie(options.sessionCookie.name, session.sessionToken as unknown as string, { ...options.sessionCookie }),
+        'set-cookie',
+        serializeCookie(options.sessionCookie.name, session.sessionToken as unknown as string, {
+          ...options.sessionCookie
+        })
       );
       return res;
     } catch (err) {
@@ -160,11 +189,13 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
   const passkeyRegistrationStart = async (request: Request): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
-      const body = await readJson<{ userId: string; userName: string; userDisplayName?: string }>(request);
+      const body = await readJson<{ userId: string; userName: string; userDisplayName?: string }>(
+        request
+      );
       const out = await options.core.startPasskeyRegistration({
         userId: body.userId as any,
         userName: body.userName,
-        userDisplayName: body.userDisplayName,
+        userDisplayName: body.userDisplayName
       });
       return json(out);
     } catch (err) {
@@ -172,16 +203,19 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
     }
   };
 
-  const passkeyRegistrationFinish = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const passkeyRegistrationFinish = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const body = await readJson<any>(request);
       await options.core.finishPasskeyRegistration({
         userId: body.userId as any,
         challengeId: body.challengeId as any,
-        response: body.response,
+        response: body.response
       });
-      return redirect(opts.redirectTo ?? "/");
+      return redirect(opts.redirectTo ?? '/');
     } catch (err) {
       return mapAuthError(err);
     }
@@ -198,26 +232,33 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
     }
   };
 
-  const passkeyLoginFinish = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const passkeyLoginFinish = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const body = await readJson<any>(request);
       const out = await options.core.finishPasskeyLogin({
         challengeId: body.challengeId as any,
-        response: body.response,
+        response: body.response
       });
-      if ("twoFactorRequired" in out && out.twoFactorRequired) {
+      if ('twoFactorRequired' in out && out.twoFactorRequired) {
         const res = redirect(twoFactorRedirectTo);
         res.headers.append(
-          "set-cookie",
-          serializeCookie(totpPendingCookie.name, out.pendingToken as unknown as string, { ...totpPendingCookie }),
+          'set-cookie',
+          serializeCookie(totpPendingCookie.name, out.pendingToken as unknown as string, {
+            ...totpPendingCookie
+          })
         );
         return res;
       }
-      const res = redirect(opts.redirectTo ?? "/");
+      const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
-        "set-cookie",
-        serializeCookie(options.sessionCookie.name, out.session.sessionToken as unknown as string, { ...options.sessionCookie }),
+        'set-cookie',
+        serializeCookie(options.sessionCookie.name, out.session.sessionToken as unknown as string, {
+          ...options.sessionCookie
+        })
       );
       return res;
     } catch (err) {
@@ -229,38 +270,56 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const body = await readJson<{ userId: string; accountName: string }>(request);
-      const out = await options.core.startTotpEnrollment({ userId: body.userId as any, accountName: body.accountName });
+      const out = await options.core.startTotpEnrollment({
+        userId: body.userId as any,
+        accountName: body.accountName
+      });
       return json(out);
     } catch (err) {
       return mapAuthError(err);
     }
   };
 
-  const totpEnrollmentFinish = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const totpEnrollmentFinish = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const body = await readJson<{ userId: string; code: string }>(request);
       await options.core.finishTotpEnrollment({ userId: body.userId as any, code: body.code });
-      return redirect(opts.redirectTo ?? "/settings/security");
+      return redirect(opts.redirectTo ?? '/settings/security');
     } catch (err) {
       return mapAuthError(err);
     }
   };
 
-  const totpVerify = async (request: Request, opts: { redirectTo?: string } = {}): Promise<Response> => {
+  const totpVerify = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
     if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
     try {
       const pending = getCookie(request, totpPendingCookie.name);
-      if (!pending) throw new AuthError("unauthorized", "Missing 2FA token", { publicMessage: "Invalid code", status: 401 });
+      if (!pending)
+        throw new AuthError('unauthorized', 'Missing 2FA token', {
+          publicMessage: 'Invalid code',
+          status: 401
+        });
       const form = await readForm(request);
-      const code = String(form.get("code") ?? "");
+      const code = String(form.get('code') ?? '');
       const out = await options.core.verifyTotp({ pendingToken: pending as any, code });
-      const res = redirect(opts.redirectTo ?? "/");
+      const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
-        "set-cookie",
-        serializeCookie(options.sessionCookie.name, out.session.sessionToken as unknown as string, { ...options.sessionCookie }),
+        'set-cookie',
+        serializeCookie(options.sessionCookie.name, out.session.sessionToken as unknown as string, {
+          ...options.sessionCookie
+        })
       );
-      res.headers.append("set-cookie", serializeDeleteCookie(totpPendingCookie.name, { ...totpPendingCookie }));
+      res.headers.append(
+        'set-cookie',
+        serializeDeleteCookie(totpPendingCookie.name, { ...totpPendingCookie })
+      );
       return res;
     } catch (err) {
       return mapAuthError(err);
@@ -280,8 +339,8 @@ export function createReactRouterAuthAdapter(options: ReactRouterAuthAdapterOpti
       passkeyLoginFinish,
       totpEnrollmentStart,
       totpEnrollmentFinish,
-      totpVerify,
-    },
+      totpVerify
+    }
   };
 }
 
@@ -291,22 +350,24 @@ function mapAuthError(err: unknown): Response {
       {
         error: {
           code: err.code,
-          message: err.publicMessage ?? "Request failed",
-        },
+          message: err.publicMessage ?? 'Request failed'
+        }
       },
-      { status: err.status },
+      { status: err.status }
     );
   }
-  const unknown = new AuthError("internal_error", "Unexpected error", { publicMessage: "Request failed", status: 500, cause: err });
+  const unknown = new AuthError('internal_error', 'Unexpected error', {
+    publicMessage: 'Request failed',
+    status: 500,
+    cause: err
+  });
   return json(
     {
       error: {
         code: unknown.code,
-        message: unknown.publicMessage,
-      },
+        message: unknown.publicMessage
+      }
     },
-    { status: unknown.status },
+    { status: unknown.status }
   );
 }
-
-

@@ -1,4 +1,4 @@
-import type { CreateSessionTokenResult, SessionToken, UserId } from "../auth-types.js";
+import type { CreateSessionTokenResult, SessionToken, UserId } from '../auth-types.js';
 
 export type ValidateSessionInput = {
   sessionToken: SessionToken;
@@ -15,7 +15,7 @@ export type ValidateSessionResult =
     }
   | {
       ok: false;
-      reason: "missing" | "revoked" | "expired";
+      reason: 'missing' | 'revoked' | 'expired';
     };
 
 export type RevokeSessionInput = {
@@ -23,5 +23,3 @@ export type RevokeSessionInput = {
 };
 
 export type RevokeSessionResult = { ok: true };
-
-

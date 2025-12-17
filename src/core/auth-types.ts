@@ -1,10 +1,10 @@
 export type Brand<T, B extends string> = T & { readonly __brand: B };
 
-export type UserId = Brand<string, "UserId">;
-export type SessionToken = Brand<string, "SessionToken">;
-export type SessionTokenHash = Brand<string, "SessionTokenHash">;
-export type ChallengeId = Brand<string, "ChallengeId">;
-export type WebAuthnCredentialId = Brand<string, "WebAuthnCredentialId">;
+export type UserId = Brand<string, 'UserId'>;
+export type SessionToken = Brand<string, 'SessionToken'>;
+export type SessionTokenHash = Brand<string, 'SessionTokenHash'>;
+export type ChallengeId = Brand<string, 'ChallengeId'>;
+export type WebAuthnCredentialId = Brand<string, 'WebAuthnCredentialId'>;
 
 export type CreateSessionTokenResult = {
   sessionToken: SessionToken;
@@ -32,5 +32,3 @@ export type PasswordRegisterResult = {
   userId: UserId;
   session: CreateSessionTokenResult;
 };
-
-

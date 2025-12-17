@@ -1,4 +1,4 @@
-export type UserVerificationPolicy = "required" | "preferred" | "discouraged";
+export type UserVerificationPolicy = 'required' | 'preferred' | 'discouraged';
 
 export type PasswordPolicy = {
   /**
@@ -81,32 +81,30 @@ export type TotpPolicy = {
 export const defaultAuthPolicy: AuthPolicy = {
   password: {
     minLength: 12,
-    maxLength: 1024,
+    maxLength: 1024
   },
   passkey: {
-    rpId: "localhost",
-    rpName: "localhost",
-    origins: ["http://localhost:5173"],
-    userVerification: "preferred",
+    rpId: 'localhost',
+    rpName: 'localhost',
+    origins: ['http://localhost:5173'],
+    userVerification: 'preferred'
   },
   backupCodes: {
     count: 10,
-    length: 10,
+    length: 10
   },
   totp: {
-    issuer: "localhost",
+    issuer: 'localhost',
     digits: 6,
     periodSeconds: 30,
-    allowedSkewSteps: 1,
+    allowedSkewSteps: 1
   },
   session: {
     absoluteTtlMs: 1000 * 60 * 60 * 24 * 30, // 30d
     idleTtlMs: 1000 * 60 * 60 * 24 * 7, // 7d
-    rotateEveryMs: 1000 * 60 * 60 * 24, // 24h
+    rotateEveryMs: 1000 * 60 * 60 * 24 // 24h
   },
   challenge: {
-    ttlMs: 1000 * 60 * 5, // 5m
-  },
+    ttlMs: 1000 * 60 * 5 // 5m
+  }
 };
-
-

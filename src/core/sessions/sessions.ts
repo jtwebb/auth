@@ -1,8 +1,18 @@
-import { AuthError } from "../auth-error.js";
-import type { AuthPolicy } from "../auth-policy.js";
-import type { CreateSessionTokenResult, SessionToken, SessionTokenHash, UserId } from "../auth-types.js";
-import type { AuthStorage, SessionRecord } from "../storage/auth-storage.js";
-import type { RevokeSessionInput, RevokeSessionResult, ValidateSessionInput, ValidateSessionResult } from "./session-types.js";
+import { AuthError } from '../auth-error.js';
+import type { AuthPolicy } from '../auth-policy.js';
+import type {
+  CreateSessionTokenResult,
+  SessionToken,
+  SessionTokenHash,
+  UserId
+} from '../auth-types.js';
+import type { AuthStorage, SessionRecord } from '../storage/auth-storage.js';
+import type {
+  RevokeSessionInput,
+  RevokeSessionResult,
+  ValidateSessionInput,
+  ValidateSessionResult
+} from './session-types.js';
 
 export async function validateSession(ctx: {
   input: ValidateSessionInput;
@@ -13,27 +23,30 @@ export async function validateSession(ctx: {
   createSessionToken: () => CreateSessionTokenResult;
 }): Promise<ValidateSessionResult> {
   const token = ctx.input.sessionToken as unknown as string;
-  if (typeof token !== "string" || token.length < 16) {
-    return { ok: false, reason: "missing" };
+  if (typeof token !== 'string' || token.length < 16) {
+    return { ok: false, reason: 'missing' };
   }
 
   const now = ctx.now();
   const tokenHash = ctx.hashSessionToken(ctx.input.sessionToken);
   const session = await ctx.storage.sessions.getSessionByTokenHash(tokenHash);
-  if (!session) return { ok: false, reason: "missing" };
-  if (session.revokedAt) return { ok: false, reason: "revoked" };
-  if (session.expiresAt.getTime() <= now.getTime()) return { ok: false, reason: "expired" };
+  if (!session) return { ok: false, reason: 'missing' };
+  if (session.revokedAt) return { ok: false, reason: 'revoked' };
+  if (session.expiresAt.getTime() <= now.getTime()) return { ok: false, reason: 'expired' };
 
   if (ctx.policy.session.idleTtlMs !== undefined) {
     const last = (session.lastSeenAt ?? session.createdAt).getTime();
-    if (last + ctx.policy.session.idleTtlMs <= now.getTime()) return { ok: false, reason: "expired" };
+    if (last + ctx.policy.session.idleTtlMs <= now.getTime())
+      return { ok: false, reason: 'expired' };
   }
 
   // Rotation decision
   const rotateEveryMs = ctx.policy.session.rotateEveryMs;
   const lastSeen = session.lastSeenAt ?? session.createdAt;
   const shouldRotate =
-    rotateEveryMs !== undefined && rotateEveryMs > 0 && lastSeen.getTime() + rotateEveryMs <= now.getTime();
+    rotateEveryMs !== undefined &&
+    rotateEveryMs > 0 &&
+    lastSeen.getTime() + rotateEveryMs <= now.getTime();
 
   if (shouldRotate) {
     const rotated = ctx.createSessionToken();
@@ -44,7 +57,7 @@ export async function validateSession(ctx: {
       createdAt: now,
       lastSeenAt: now,
       expiresAt,
-      rotatedFromHash: tokenHash,
+      rotatedFromHash: tokenHash
     };
 
     await ctx.storage.sessions.rotateSession(tokenHash, newRecord, now);
@@ -63,7 +76,7 @@ export async function revokeSession(ctx: {
   hashSessionToken: (t: SessionToken) => SessionTokenHash;
 }): Promise<RevokeSessionResult> {
   const token = ctx.input.sessionToken as unknown as string;
-  if (typeof token !== "string" || token.length < 16) {
+  if (typeof token !== 'string' || token.length < 16) {
     // Logout should be idempotent.
     return { ok: true };
   }
@@ -83,7 +96,5 @@ export async function revokeAllUserSessions(ctx: {
 }
 
 export function assertNever(_: never): never {
-  throw new AuthError("internal_error", "unreachable");
+  throw new AuthError('internal_error', 'unreachable');
 }
-
-

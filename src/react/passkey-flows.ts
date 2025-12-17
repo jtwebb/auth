@@ -1,5 +1,5 @@
-import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { fetchJson } from "./fetch-json.js";
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
+import { fetchJson } from './fetch-json.js';
 import type {
   FetchLike,
   PasskeyLoginFinishPayload,
@@ -7,8 +7,8 @@ import type {
   PasskeyLoginStartResult,
   PasskeyRegistrationFinishPayload,
   PasskeyRegistrationStartPayload,
-  PasskeyRegistrationStartResult,
-} from "./types.js";
+  PasskeyRegistrationStartResult
+} from './types.js';
 
 export type PasskeyEndpoints = {
   registrationStartUrl: string;
@@ -30,38 +30,48 @@ export function createPasskeyFlows(endpoints: PasskeyEndpoints, deps: PasskeyDep
 
   return {
     async register(input: PasskeyRegistrationStartPayload) {
-      const start = await fetchJson<PasskeyRegistrationStartResult>(fetchFn, endpoints.registrationStartUrl, {
-        method: "POST",
-        json: input,
-        credentials: "include",
-      });
+      const start = await fetchJson<PasskeyRegistrationStartResult>(
+        fetchFn,
+        endpoints.registrationStartUrl,
+        {
+          method: 'POST',
+          json: input,
+          credentials: 'include'
+        }
+      );
 
       const response = await startRegistrationFn(start.options);
       const finishPayload: PasskeyRegistrationFinishPayload = {
         userId: input.userId,
         challengeId: start.challengeId,
-        response,
+        response
       };
-      await fetchJson(fetchFn, endpoints.registrationFinishUrl, { method: "POST", json: finishPayload, credentials: "include" });
+      await fetchJson(fetchFn, endpoints.registrationFinishUrl, {
+        method: 'POST',
+        json: finishPayload,
+        credentials: 'include'
+      });
       return { challengeId: start.challengeId };
     },
 
     async login(input: PasskeyLoginStartPayload = {}) {
       const start = await fetchJson<PasskeyLoginStartResult>(fetchFn, endpoints.loginStartUrl, {
-        method: "POST",
+        method: 'POST',
         json: input,
-        credentials: "include",
+        credentials: 'include'
       });
 
       const response = await startAuthenticationFn(start.options);
       const finishPayload: PasskeyLoginFinishPayload = {
         challengeId: start.challengeId,
-        response,
+        response
       };
-      await fetchJson(fetchFn, endpoints.loginFinishUrl, { method: "POST", json: finishPayload, credentials: "include" });
+      await fetchJson(fetchFn, endpoints.loginFinishUrl, {
+        method: 'POST',
+        json: finishPayload,
+        credentials: 'include'
+      });
       return { challengeId: start.challengeId };
-    },
+    }
   };
 }
-
-

@@ -1,4 +1,4 @@
-import type { ChallengeId, CreateSessionTokenResult, UserId } from "../auth-types.js";
+import type { ChallengeId, CreateSessionTokenResult, UserId } from '../auth-types.js';
 
 export type StartTotpEnrollmentInput = {
   userId: UserId;
@@ -30,5 +30,3 @@ export type VerifyTotpResult = {
   userId: UserId;
   session: CreateSessionTokenResult;
 };
-
-

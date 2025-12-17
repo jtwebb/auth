@@ -1,8 +1,10 @@
-import * as React from "react";
-import { createTotpFlows, type TotpEndpoints } from "../totp-flows.js";
-import type { TotpEnrollmentStartResult } from "../types.js";
+import * as React from 'react';
+import { createTotpFlows, type TotpEndpoints } from '../totp-flows.js';
+import type { TotpEnrollmentStartResult } from '../types.js';
 
-export function useTotpEnrollment(endpoints: Pick<TotpEndpoints, "enrollmentStartUrl" | "enrollmentFinishUrl">) {
+export function useTotpEnrollment(
+  endpoints: Pick<TotpEndpoints, 'enrollmentStartUrl' | 'enrollmentFinishUrl'>
+) {
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<Error | null>(null);
   const [enrollment, setEnrollment] = React.useState<TotpEnrollmentStartResult | null>(null);
@@ -12,19 +14,19 @@ export function useTotpEnrollment(endpoints: Pick<TotpEndpoints, "enrollmentStar
       setIsLoading(true);
       setError(null);
       try {
-        const flows = createTotpFlows({ ...endpoints, verifyUrl: "" });
+        const flows = createTotpFlows({ ...endpoints, verifyUrl: '' });
         const res = await flows.startEnrollment(input);
         setEnrollment(res);
         return res;
       } catch (e) {
-        const err = e instanceof Error ? e : new Error("TOTP enrollment failed");
+        const err = e instanceof Error ? e : new Error('TOTP enrollment failed');
         setError(err);
         throw err;
       } finally {
         setIsLoading(false);
       }
     },
-    [endpoints.enrollmentStartUrl, endpoints.enrollmentFinishUrl],
+    [endpoints.enrollmentStartUrl, endpoints.enrollmentFinishUrl]
   );
 
   const finish = React.useCallback(
@@ -32,21 +34,19 @@ export function useTotpEnrollment(endpoints: Pick<TotpEndpoints, "enrollmentStar
       setIsLoading(true);
       setError(null);
       try {
-        const flows = createTotpFlows({ ...endpoints, verifyUrl: "" });
+        const flows = createTotpFlows({ ...endpoints, verifyUrl: '' });
         const res = await flows.finishEnrollment(input);
         return res;
       } catch (e) {
-        const err = e instanceof Error ? e : new Error("TOTP enrollment failed");
+        const err = e instanceof Error ? e : new Error('TOTP enrollment failed');
         setError(err);
         throw err;
       } finally {
         setIsLoading(false);
       }
     },
-    [endpoints.enrollmentStartUrl, endpoints.enrollmentFinishUrl],
+    [endpoints.enrollmentStartUrl, endpoints.enrollmentFinishUrl]
   );
 
   return { start, finish, enrollment, isLoading, error };
 }
-
-

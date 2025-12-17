@@ -1,8 +1,13 @@
-import type { AuthPolicy } from "../auth-policy.js";
-import { AuthError } from "../auth-error.js";
-import type { ChallengeId, CreateSessionTokenResult, UserId, WebAuthnCredentialId } from "../auth-types.js";
-import type { RandomBytesFn } from "../create-auth-core.js";
-import type { AuthStorage } from "../storage/auth-storage.js";
+import type { AuthPolicy } from '../auth-policy.js';
+import { AuthError } from '../auth-error.js';
+import type {
+  ChallengeId,
+  CreateSessionTokenResult,
+  UserId,
+  WebAuthnCredentialId
+} from '../auth-types.js';
+import type { RandomBytesFn } from '../create-auth-core.js';
+import type { AuthStorage } from '../storage/auth-storage.js';
 import type {
   PasskeyLoginFinishInput,
   PasskeyLoginFinishResult,
@@ -11,17 +16,17 @@ import type {
   PasskeyRegistrationFinishInput,
   PasskeyRegistrationFinishResult,
   PasskeyRegistrationStartInput,
-  PasskeyRegistrationStartResult,
-} from "./passkey-types.js";
-import type { Uint8Array_ } from "@simplewebauthn/server";
+  PasskeyRegistrationStartResult
+} from './passkey-types.js';
+import type { Uint8Array_ } from '@simplewebauthn/server';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
   verifyAuthenticationResponse,
-  verifyRegistrationResponse,
-} from "@simplewebauthn/server";
-import { createHash } from "node:crypto";
-import { createTotpPending } from "../totp/totp.js";
+  verifyRegistrationResponse
+} from '@simplewebauthn/server';
+import { createHash } from 'node:crypto';
+import { createTotpPending } from '../totp/totp.js';
 
 export type PasskeyStartContext<I, O> = {
   input: I;
@@ -44,9 +49,9 @@ export async function startPasskeyRegistration(ctx: {
   const expiresAt = new Date(now.getTime() + ctx.policy.challenge.ttlMs);
 
   const existing = await ctx.storage.webauthn.listCredentialsForUser(ctx.input.userId);
-  const excludeCredentials = existing.map((c) => ({
+  const excludeCredentials = existing.map(c => ({
     id: c.credentialId,
-    transports: c.transports,
+    transports: c.transports
   }));
 
   const userHandle = userHandleFromUserId(ctx.input.userId);
@@ -60,18 +65,18 @@ export async function startPasskeyRegistration(ctx: {
     challenge,
     excludeCredentials,
     authenticatorSelection: {
-      residentKey: "preferred",
-      userVerification: ctx.policy.passkey.userVerification,
+      residentKey: 'preferred',
+      userVerification: ctx.policy.passkey.userVerification
     },
-    attestationType: "none",
+    attestationType: 'none'
   });
 
   await ctx.storage.challenges.createChallenge({
     id: challengeId,
-    type: "passkey_register",
+    type: 'passkey_register',
     userId: ctx.input.userId,
     challenge: options.challenge,
-    expiresAt,
+    expiresAt
   });
 
   return { challengeId, options };
@@ -85,18 +90,19 @@ export async function finishPasskeyRegistration(ctx: {
 }): Promise<PasskeyRegistrationFinishResult> {
   const now = ctx.now();
   const stored = await ctx.storage.challenges.consumeChallenge(ctx.input.challengeId);
-  if (!stored || stored.type !== "passkey_register") throw invalidPasskey();
+  if (!stored || stored.type !== 'passkey_register') throw invalidPasskey();
   if (stored.userId !== ctx.input.userId) throw invalidPasskey();
-  if (stored.expiresAt.getTime() < now.getTime()) throw new AuthError("challenge_expired", "Passkey challenge expired");
+  if (stored.expiresAt.getTime() < now.getTime())
+    throw new AuthError('challenge_expired', 'Passkey challenge expired');
 
-  const requireUserVerification = ctx.policy.passkey.userVerification === "required";
+  const requireUserVerification = ctx.policy.passkey.userVerification === 'required';
 
   const verification = await verifyRegistrationResponse({
     response: ctx.input.response,
     expectedChallenge: stored.challenge,
     expectedOrigin: [...ctx.policy.passkey.origins],
     expectedRPID: ctx.policy.passkey.rpId,
-    requireUserVerification,
+    requireUserVerification
   });
 
   if (!verification.verified) throw invalidPasskey();
@@ -114,7 +120,7 @@ export async function finishPasskeyRegistration(ctx: {
     transports: credential.transports,
     credentialDeviceType,
     credentialBackedUp,
-    createdAt: now,
+    createdAt: now
   });
 
   return { userId: ctx.input.userId, credentialId };
@@ -134,9 +140,9 @@ export async function startPasskeyLogin(ctx: {
 
   const allowCredentials =
     ctx.input.userId !== undefined
-      ? (await ctx.storage.webauthn.listCredentialsForUser(ctx.input.userId)).map((c) => ({
+      ? (await ctx.storage.webauthn.listCredentialsForUser(ctx.input.userId)).map(c => ({
           id: c.credentialId,
-          transports: c.transports,
+          transports: c.transports
         }))
       : undefined;
 
@@ -144,15 +150,15 @@ export async function startPasskeyLogin(ctx: {
     rpID: ctx.policy.passkey.rpId,
     challenge,
     allowCredentials,
-    userVerification: ctx.policy.passkey.userVerification,
+    userVerification: ctx.policy.passkey.userVerification
   });
 
   await ctx.storage.challenges.createChallenge({
     id: challengeId,
-    type: "passkey_login",
+    type: 'passkey_login',
     userId: ctx.input.userId,
     challenge: options.challenge,
-    expiresAt,
+    expiresAt
   });
 
   return { challengeId, options };
@@ -168,15 +174,18 @@ export async function finishPasskeyLogin(ctx: {
 }): Promise<PasskeyLoginFinishResult> {
   const now = ctx.now();
   const stored = await ctx.storage.challenges.consumeChallenge(ctx.input.challengeId);
-  if (!stored || stored.type !== "passkey_login") throw invalidPasskey();
-  if (stored.expiresAt.getTime() < now.getTime()) throw new AuthError("challenge_expired", "Passkey challenge expired");
+  if (!stored || stored.type !== 'passkey_login') throw invalidPasskey();
+  if (stored.expiresAt.getTime() < now.getTime())
+    throw new AuthError('challenge_expired', 'Passkey challenge expired');
 
   const credentialIdB64u = ctx.input.response.id;
-  const record = await ctx.storage.webauthn.getCredentialById(credentialIdB64u as unknown as WebAuthnCredentialId);
+  const record = await ctx.storage.webauthn.getCredentialById(
+    credentialIdB64u as unknown as WebAuthnCredentialId
+  );
   if (!record) throw invalidPasskey();
   if (stored.userId !== undefined && stored.userId !== record.userId) throw invalidPasskey();
 
-  const requireUserVerification = ctx.policy.passkey.userVerification === "required";
+  const requireUserVerification = ctx.policy.passkey.userVerification === 'required';
 
   const verification = await verifyAuthenticationResponse({
     response: ctx.input.response,
@@ -187,17 +196,21 @@ export async function finishPasskeyLogin(ctx: {
       id: record.credentialId,
       publicKey: record.publicKey.slice(),
       counter: record.counter,
-      transports: record.transports,
+      transports: record.transports
     },
     requireUserVerification,
     advancedFIDOConfig: {
-      userVerification: ctx.policy.passkey.userVerification,
-    },
+      userVerification: ctx.policy.passkey.userVerification
+    }
   });
 
   if (!verification.verified) throw invalidPasskey();
 
-  await ctx.storage.webauthn.updateCredentialCounter(record.id, verification.authenticationInfo.newCounter, now);
+  await ctx.storage.webauthn.updateCredentialCounter(
+    record.id,
+    verification.authenticationInfo.newCounter,
+    now
+  );
 
   const totpEnabled = await ctx.storage.totp.getEnabled(record.userId);
   if (totpEnabled) {
@@ -206,7 +219,7 @@ export async function finishPasskeyLogin(ctx: {
       storage: ctx.storage,
       now: () => now,
       randomBytes: ctx.randomBytes,
-      ttlMs: ctx.policy.challenge.ttlMs,
+      ttlMs: ctx.policy.challenge.ttlMs
     });
     return { twoFactorRequired: true, userId: record.userId, pendingToken };
   }
@@ -218,16 +231,16 @@ export async function finishPasskeyLogin(ctx: {
     userId: record.userId,
     createdAt: now,
     lastSeenAt: now,
-    expiresAt,
+    expiresAt
   });
 
   return { userId: record.userId, session };
 }
 
 function invalidPasskey(): AuthError {
-  return new AuthError("passkey_invalid", "Invalid passkey response", {
-    publicMessage: "Unable to sign in",
-    status: 401,
+  return new AuthError('passkey_invalid', 'Invalid passkey response', {
+    publicMessage: 'Unable to sign in',
+    status: 401
   });
 }
 
@@ -237,28 +250,27 @@ function randomId(randomBytes: RandomBytesFn, size: number): string {
 }
 
 function userHandleFromUserId(userId: UserId): Uint8Array_ {
-  const h = createHash("sha256");
-  h.update("user-handle:");
+  const h = createHash('sha256');
+  h.update('user-handle:');
   h.update(userId as unknown as string);
   // `.slice()` normalizes Buffer's underlying ArrayBufferLike typing to match SimpleWebAuthn's Uint8Array_ helper type.
   return h.digest().slice();
 }
 
 function normalizeUserName(userName: string): string {
-  if (typeof userName !== "string") throw new AuthError("invalid_input", "userName must be a string");
+  if (typeof userName !== 'string')
+    throw new AuthError('invalid_input', 'userName must be a string');
   const trimmed = userName.trim();
-  if (!trimmed) throw new AuthError("invalid_input", "userName is required");
-  if (trimmed.length > 320) throw new AuthError("invalid_input", "userName is too long");
+  if (!trimmed) throw new AuthError('invalid_input', 'userName is required');
+  if (trimmed.length > 320) throw new AuthError('invalid_input', 'userName is too long');
   return trimmed;
 }
 
 function toBase64Url(buf: Uint8Array): string {
   // Node 20 supports base64url encoding, but this keeps output consistent across environments.
   return Buffer.from(buf)
-    .toString("base64")
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
+    .toString('base64')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
 }
-
-

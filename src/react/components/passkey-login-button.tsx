@@ -1,4 +1,4 @@
-import { usePasskeyLogin } from "../hooks/use-passkey-login.js";
+import { usePasskeyLogin } from '../hooks/use-passkey-login.js';
 
 export type PasskeyLoginButtonProps = {
   loginStartUrl: string;
@@ -11,7 +11,7 @@ export type PasskeyLoginButtonProps = {
 export function PasskeyLoginButton(props: PasskeyLoginButtonProps) {
   const { login, isLoading, error } = usePasskeyLogin({
     loginStartUrl: props.loginStartUrl,
-    loginFinishUrl: props.loginFinishUrl,
+    loginFinishUrl: props.loginFinishUrl
   });
 
   return (
@@ -24,11 +24,9 @@ export function PasskeyLoginButton(props: PasskeyLoginButtonProps) {
           props.onSuccess?.();
         }}
       >
-        {props.label ?? "Sign in with passkey"}
+        {props.label ?? 'Sign in with passkey'}
       </button>
       {error ? <div role="alert">{error.message}</div> : null}
     </div>
   );
 }
-
-

@@ -2,9 +2,14 @@ import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
-  RegistrationResponseJSON,
-} from "@simplewebauthn/server";
-import type { ChallengeId, CreateSessionTokenResult, UserId, WebAuthnCredentialId } from "../auth-types.js";
+  RegistrationResponseJSON
+} from '@simplewebauthn/server';
+import type {
+  ChallengeId,
+  CreateSessionTokenResult,
+  UserId,
+  WebAuthnCredentialId
+} from '../auth-types.js';
 
 export type PasskeyRegistrationStartInput = {
   userId: UserId;
@@ -49,5 +54,3 @@ export type PasskeyLoginFinishInput = {
 export type PasskeyLoginFinishResult =
   | { twoFactorRequired: true; userId: UserId; pendingToken: ChallengeId }
   | { twoFactorRequired?: false; userId: UserId; session: CreateSessionTokenResult };
-
-

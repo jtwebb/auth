@@ -55,5 +55,3 @@ export type TotpEnrollmentFinishPayload = {
   userId: string;
   code: string;
 };
-
-

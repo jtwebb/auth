@@ -9,11 +9,10 @@ export function BackupCodesDisplay(props: BackupCodesDisplayProps) {
   return (
     <div>
       <p>
-        Save these backup codes somewhere safe. They will be shown only once. Each code can be used once.
+        Save these backup codes somewhere safe. They will be shown only once. Each code can be used
+        once.
       </p>
-      <pre>{props.codes.join("\n")}</pre>
+      <pre>{props.codes.join('\n')}</pre>
     </div>
   );
 }
-
-

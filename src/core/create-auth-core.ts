@@ -1,7 +1,7 @@
-import { createHash, createHmac, randomBytes as nodeRandomBytes } from "node:crypto";
-import { AuthError } from "./auth-error.js";
-import type { AuthPolicy } from "./auth-policy.js";
-import { defaultAuthPolicy } from "./auth-policy.js";
+import { createHash, createHmac, randomBytes as nodeRandomBytes } from 'node:crypto';
+import { AuthError } from './auth-error.js';
+import type { AuthPolicy } from './auth-policy.js';
+import { defaultAuthPolicy } from './auth-policy.js';
 import type {
   CreateSessionTokenResult,
   PasswordLoginInput,
@@ -10,11 +10,11 @@ import type {
   PasswordRegisterResult,
   SessionToken,
   SessionTokenHash,
-  UserId,
-} from "./auth-types.js";
-import { loginWithPassword, registerWithPassword } from "./password/password-auth.js";
-import type { Argon2Params } from "./password/password-hash.js";
-import type { AuthStorage } from "./storage/auth-storage.js";
+  UserId
+} from './auth-types.js';
+import { loginWithPassword, registerWithPassword } from './password/password-auth.js';
+import type { Argon2Params } from './password/password-hash.js';
+import type { AuthStorage } from './storage/auth-storage.js';
 import type {
   PasskeyLoginFinishInput,
   PasskeyLoginFinishResult,
@@ -23,46 +23,56 @@ import type {
   PasskeyRegistrationFinishInput,
   PasskeyRegistrationFinishResult,
   PasskeyRegistrationStartInput,
-  PasskeyRegistrationStartResult,
-} from "./passkey/passkey-types.js";
+  PasskeyRegistrationStartResult
+} from './passkey/passkey-types.js';
 import {
   finishPasskeyLogin,
   finishPasskeyRegistration,
   startPasskeyLogin,
-  startPasskeyRegistration,
-} from "./passkey/passkey-auth.js";
-import type { RedeemBackupCodeInput, RedeemBackupCodeResult, RotateBackupCodesInput, RotateBackupCodesResult } from "./backup-codes/backup-code-types.js";
-import { redeemBackupCode, rotateBackupCodes } from "./backup-codes/backup-codes.js";
-import type { RevokeSessionInput, RevokeSessionResult, ValidateSessionInput, ValidateSessionResult } from "./sessions/session-types.js";
-import { revokeAllUserSessions, revokeSession, validateSession } from "./sessions/sessions.js";
+  startPasskeyRegistration
+} from './passkey/passkey-auth.js';
+import type {
+  RedeemBackupCodeInput,
+  RedeemBackupCodeResult,
+  RotateBackupCodesInput,
+  RotateBackupCodesResult
+} from './backup-codes/backup-code-types.js';
+import { redeemBackupCode, rotateBackupCodes } from './backup-codes/backup-codes.js';
+import type {
+  RevokeSessionInput,
+  RevokeSessionResult,
+  ValidateSessionInput,
+  ValidateSessionResult
+} from './sessions/session-types.js';
+import { revokeAllUserSessions, revokeSession, validateSession } from './sessions/sessions.js';
 import type {
   FinishTotpEnrollmentInput,
   FinishTotpEnrollmentResult,
   StartTotpEnrollmentInput,
   StartTotpEnrollmentResult,
   VerifyTotpInput,
-  VerifyTotpResult,
-} from "./totp/totp-types.js";
-import { finishTotpEnrollment, startTotpEnrollment, verifyTotp } from "./totp/totp.js";
-import type { TotpEncryptionKey } from "./totp/totp-crypto.js";
+  VerifyTotpResult
+} from './totp/totp-types.js';
+import { finishTotpEnrollment, startTotpEnrollment, verifyTotp } from './totp/totp.js';
+import type { TotpEncryptionKey } from './totp/totp-crypto.js';
 
 export type RandomBytesFn = (size: number) => Uint8Array;
 export type Clock = { now: () => Date };
 
 export type AuthAttemptEvent =
   | {
-      type: "password_login";
+      type: 'password_login';
       identifier: string;
       userId?: string;
       ok: boolean;
-      reason?: "not_found" | "no_password_credential" | "invalid_password";
+      reason?: 'not_found' | 'no_password_credential' | 'invalid_password';
     }
   | {
-      type: "password_register";
+      type: 'password_register';
       identifier: string;
       userId?: string;
       ok: boolean;
-      reason?: "conflict";
+      reason?: 'conflict';
     };
 
 export type CreateAuthCoreOptions = {
@@ -113,8 +123,12 @@ export type AuthCore = {
   // Commands (implemented in later milestones)
   registerPassword(input: PasswordRegisterInput): Promise<PasswordRegisterResult>;
   loginPassword(input: PasswordLoginInput): Promise<PasswordLoginResult>;
-  startPasskeyRegistration(input: PasskeyRegistrationStartInput): Promise<PasskeyRegistrationStartResult>;
-  finishPasskeyRegistration(input: PasskeyRegistrationFinishInput): Promise<PasskeyRegistrationFinishResult>;
+  startPasskeyRegistration(
+    input: PasskeyRegistrationStartInput
+  ): Promise<PasskeyRegistrationStartResult>;
+  finishPasskeyRegistration(
+    input: PasskeyRegistrationFinishInput
+  ): Promise<PasskeyRegistrationFinishResult>;
   startPasskeyLogin(input: PasskeyLoginStartInput): Promise<PasskeyLoginStartResult>;
   finishPasskeyLogin(input: PasskeyLoginFinishInput): Promise<PasskeyLoginFinishResult>;
   rotateBackupCodes(input: RotateBackupCodesInput): Promise<RotateBackupCodesResult>;
@@ -128,11 +142,11 @@ export type AuthCore = {
 };
 
 export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
-  if (!options || typeof options !== "object") {
-    throw new AuthError("invalid_input", "createAuthCore: options must be an object");
+  if (!options || typeof options !== 'object') {
+    throw new AuthError('invalid_input', 'createAuthCore: options must be an object');
   }
   if (!options.storage) {
-    throw new AuthError("invalid_input", "createAuthCore: storage is required");
+    throw new AuthError('invalid_input', 'createAuthCore: storage is required');
   }
 
   const policy: AuthPolicy = mergePolicy(defaultAuthPolicy, options.policy);
@@ -143,15 +157,15 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
 
   const hashSessionToken = (sessionToken: SessionToken): SessionTokenHash => {
     const token = sessionToken as unknown as string;
-    if (typeof token !== "string" || token.length < 16) {
-      throw new AuthError("invalid_input", "sessionToken must be a non-empty token string");
+    if (typeof token !== 'string' || token.length < 16) {
+      throw new AuthError('invalid_input', 'sessionToken must be a non-empty token string');
     }
 
     // Hex for DB friendliness (fixed length, easy indexing).
     const digestHex =
       options.sessionTokenHashSecret !== undefined
-        ? createHmac("sha256", options.sessionTokenHashSecret).update(token).digest("hex")
-        : createHash("sha256").update(token).digest("hex");
+        ? createHmac('sha256', options.sessionTokenHashSecret).update(token).digest('hex')
+        : createHash('sha256').update(token).digest('hex');
 
     return digestHex as SessionTokenHash;
   };
@@ -159,12 +173,12 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
   const createSessionToken = (): CreateSessionTokenResult => {
     const now = clock.now();
     if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
-      throw new AuthError("invalid_input", "clock.now() must return a valid Date");
+      throw new AuthError('invalid_input', 'clock.now() must return a valid Date');
     }
     // 32 bytes → 256-bit token.
     const bytes = randomBytes(32);
     if (!(bytes instanceof Uint8Array) || bytes.length !== 32) {
-      throw new AuthError("internal_error", "randomBytes must return 32 bytes");
+      throw new AuthError('internal_error', 'randomBytes must return 32 bytes');
     }
     const sessionToken = base64UrlEncode(bytes) as SessionToken;
     const sessionTokenHash = hashSessionToken(sessionToken);
@@ -176,7 +190,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     createSessionToken,
     hashSessionToken,
 
-    registerPassword: async (input) =>
+    registerPassword: async input =>
       registerWithPassword({
         input,
         storage: options.storage,
@@ -185,9 +199,9 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         createSessionToken,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
-        onAuthAttempt: options.onAuthAttempt,
+        onAuthAttempt: options.onAuthAttempt
       }),
-    loginPassword: async (input) =>
+    loginPassword: async input =>
       loginWithPassword({
         input,
         storage: options.storage,
@@ -197,120 +211,123 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         randomBytes,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
-        onAuthAttempt: options.onAuthAttempt,
+        onAuthAttempt: options.onAuthAttempt
       }),
-    startPasskeyRegistration: async (input) =>
+    startPasskeyRegistration: async input =>
       startPasskeyRegistration({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
-        randomBytes,
+        randomBytes
       }),
-    finishPasskeyRegistration: async (input) =>
+    finishPasskeyRegistration: async input =>
       finishPasskeyRegistration({
         input,
         storage: options.storage,
         policy,
-        now: () => clock.now(),
+        now: () => clock.now()
       }),
-    startPasskeyLogin: async (input) =>
+    startPasskeyLogin: async input =>
       startPasskeyLogin({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
-        randomBytes,
+        randomBytes
       }),
-    finishPasskeyLogin: async (input) =>
+    finishPasskeyLogin: async input =>
       finishPasskeyLogin({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
         createSessionToken,
-        randomBytes,
+        randomBytes
       }),
-    rotateBackupCodes: async (input) =>
+    rotateBackupCodes: async input =>
       rotateBackupCodes({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
         randomBytes,
-        backupCodeHashSecret: options.backupCodeHashSecret,
+        backupCodeHashSecret: options.backupCodeHashSecret
       }),
-    redeemBackupCode: async (input) =>
+    redeemBackupCode: async input =>
       redeemBackupCode({
         input,
         storage: options.storage,
         now: () => clock.now(),
-        backupCodeHashSecret: options.backupCodeHashSecret,
+        backupCodeHashSecret: options.backupCodeHashSecret
       }),
-    validateSession: async (input) =>
+    validateSession: async input =>
       validateSession({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
         hashSessionToken,
-        createSessionToken,
+        createSessionToken
       }),
-    revokeSession: async (input) =>
+    revokeSession: async input =>
       revokeSession({
         input,
         storage: options.storage,
         now: () => clock.now(),
-        hashSessionToken,
+        hashSessionToken
       }),
-    revokeAllUserSessions: async (userId) =>
+    revokeAllUserSessions: async userId =>
       revokeAllUserSessions({
         userId,
         storage: options.storage,
-        now: () => clock.now(),
+        now: () => clock.now()
       }),
-    startTotpEnrollment: async (input) => {
-      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+    startTotpEnrollment: async input => {
+      if (!options.totpEncryptionKey)
+        throw new AuthError('invalid_input', 'totpEncryptionKey is required');
       return startTotpEnrollment({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
         totpEncryptionKey: options.totpEncryptionKey,
-        randomBytes,
+        randomBytes
       });
     },
-    finishTotpEnrollment: async (input) => {
-      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+    finishTotpEnrollment: async input => {
+      if (!options.totpEncryptionKey)
+        throw new AuthError('invalid_input', 'totpEncryptionKey is required');
       return finishTotpEnrollment({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
-        totpEncryptionKey: options.totpEncryptionKey,
+        totpEncryptionKey: options.totpEncryptionKey
       });
     },
-    verifyTotp: async (input) => {
-      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+    verifyTotp: async input => {
+      if (!options.totpEncryptionKey)
+        throw new AuthError('invalid_input', 'totpEncryptionKey is required');
       return verifyTotp({
         input,
         storage: options.storage,
         policy,
         now: () => clock.now(),
         totpEncryptionKey: options.totpEncryptionKey,
-        createSessionToken,
+        createSessionToken
       });
-    },
+    }
   };
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
   // Node 20 supports base64url, but do it explicitly to avoid runtime differences.
   return Buffer.from(bytes)
-    .toString("base64")
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
+    .toString('base64')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
 }
 
 function mergePolicy(base: AuthPolicy, override?: Partial<AuthPolicy>): AuthPolicy {
@@ -322,44 +339,42 @@ function mergePolicy(base: AuthPolicy, override?: Partial<AuthPolicy>): AuthPoli
     passkey: { ...base.passkey, ...override.passkey },
     backupCodes: { ...base.backupCodes, ...override.backupCodes },
     session: { ...base.session, ...override.session },
-    challenge: { ...base.challenge, ...override.challenge },
+    challenge: { ...base.challenge, ...override.challenge }
   };
 }
 
 function validatePolicy(policy: AuthPolicy): void {
   if (policy.password.minLength < 8) {
-    throw new AuthError("invalid_input", "policy.password.minLength must be >= 8");
+    throw new AuthError('invalid_input', 'policy.password.minLength must be >= 8');
   }
   if (policy.password.maxLength < policy.password.minLength) {
-    throw new AuthError("invalid_input", "policy.password.maxLength must be >= minLength");
+    throw new AuthError('invalid_input', 'policy.password.maxLength must be >= minLength');
   }
   if (!policy.passkey.rpId) {
-    throw new AuthError("invalid_input", "policy.passkey.rpId is required");
+    throw new AuthError('invalid_input', 'policy.passkey.rpId is required');
   }
   if (!policy.passkey.rpName) {
-    throw new AuthError("invalid_input", "policy.passkey.rpName is required");
+    throw new AuthError('invalid_input', 'policy.passkey.rpName is required');
   }
   if (!policy.passkey.origins || policy.passkey.origins.length === 0) {
-    throw new AuthError("invalid_input", "policy.passkey.origins must contain at least one origin");
+    throw new AuthError('invalid_input', 'policy.passkey.origins must contain at least one origin');
   }
   if (policy.backupCodes.count < 1 || policy.backupCodes.count > 100) {
-    throw new AuthError("invalid_input", "policy.backupCodes.count must be between 1 and 100");
+    throw new AuthError('invalid_input', 'policy.backupCodes.count must be between 1 and 100');
   }
   if (policy.backupCodes.length < 8 || policy.backupCodes.length > 64) {
-    throw new AuthError("invalid_input", "policy.backupCodes.length must be between 8 and 64");
+    throw new AuthError('invalid_input', 'policy.backupCodes.length must be between 8 and 64');
   }
   if (!policy.totp.issuer) {
-    throw new AuthError("invalid_input", "policy.totp.issuer is required");
+    throw new AuthError('invalid_input', 'policy.totp.issuer is required');
   }
   if (policy.totp.allowedSkewSteps < 0 || policy.totp.allowedSkewSteps > 10) {
-    throw new AuthError("invalid_input", "policy.totp.allowedSkewSteps must be between 0 and 10");
+    throw new AuthError('invalid_input', 'policy.totp.allowedSkewSteps must be between 0 and 10');
   }
   if (policy.session.absoluteTtlMs < 1000 * 60) {
-    throw new AuthError("invalid_input", "policy.session.absoluteTtlMs must be at least 1 minute");
+    throw new AuthError('invalid_input', 'policy.session.absoluteTtlMs must be at least 1 minute');
   }
   if (policy.challenge.ttlMs < 1000 * 30) {
-    throw new AuthError("invalid_input", "policy.challenge.ttlMs must be at least 30 seconds");
+    throw new AuthError('invalid_input', 'policy.challenge.ttlMs must be at least 30 seconds');
   }
 }
-
-

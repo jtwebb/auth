@@ -1,8 +1,10 @@
-import * as React from "react";
-import type { PasskeyEndpoints } from "../passkey-flows.js";
-import { createPasskeyFlows } from "../passkey-flows.js";
+import * as React from 'react';
+import type { PasskeyEndpoints } from '../passkey-flows.js';
+import { createPasskeyFlows } from '../passkey-flows.js';
 
-export function usePasskeyLogin(endpoints: Pick<PasskeyEndpoints, "loginStartUrl" | "loginFinishUrl">) {
+export function usePasskeyLogin(
+  endpoints: Pick<PasskeyEndpoints, 'loginStartUrl' | 'loginFinishUrl'>
+) {
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<Error | null>(null);
 
@@ -12,24 +14,22 @@ export function usePasskeyLogin(endpoints: Pick<PasskeyEndpoints, "loginStartUrl
       setError(null);
       try {
         const flows = createPasskeyFlows({
-          registrationStartUrl: "",
-          registrationFinishUrl: "",
+          registrationStartUrl: '',
+          registrationFinishUrl: '',
           loginStartUrl: endpoints.loginStartUrl,
-          loginFinishUrl: endpoints.loginFinishUrl,
+          loginFinishUrl: endpoints.loginFinishUrl
         });
         return await flows.login(input);
       } catch (e) {
-        const err = e instanceof Error ? e : new Error("Login failed");
+        const err = e instanceof Error ? e : new Error('Login failed');
         setError(err);
         throw err;
       } finally {
         setIsLoading(false);
       }
     },
-    [endpoints.loginFinishUrl, endpoints.loginStartUrl],
+    [endpoints.loginFinishUrl, endpoints.loginStartUrl]
   );
 
   return { login, isLoading, error };
 }
-
-

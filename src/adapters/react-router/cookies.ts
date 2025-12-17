@@ -1,6 +1,6 @@
-import { AuthError } from "../../core/auth-error.js";
+import { AuthError } from '../../core/auth-error.js';
 
-export type SameSite = "lax" | "strict" | "none";
+export type SameSite = 'lax' | 'strict' | 'none';
 
 export type CookieOptions = {
   name: string;
@@ -17,11 +17,11 @@ export function parseCookieHeader(cookieHeader: string | null): Map<string, stri
   if (!cookieHeader) return out;
 
   // Very small, safe parser: split on ';', then first '='
-  const parts = cookieHeader.split(";"); // not RFC-perfect, good enough for session cookie values we set
+  const parts = cookieHeader.split(';'); // not RFC-perfect, good enough for session cookie values we set
   for (const part of parts) {
     const trimmed = part.trim();
     if (!trimmed) continue;
-    const eq = trimmed.indexOf("=");
+    const eq = trimmed.indexOf('=');
     if (eq === -1) continue;
     const name = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
@@ -32,35 +32,43 @@ export function parseCookieHeader(cookieHeader: string | null): Map<string, stri
 }
 
 export function getCookie(request: Request, name: string): string | null {
-  const map = parseCookieHeader(request.headers.get("cookie"));
+  const map = parseCookieHeader(request.headers.get('cookie'));
   return map.get(name) ?? null;
 }
 
-export function serializeCookie(name: string, value: string, options: Omit<CookieOptions, "name"> = {}): string {
-  if (!name) throw new AuthError("invalid_input", "cookie name is required");
+export function serializeCookie(
+  name: string,
+  value: string,
+  options: Omit<CookieOptions, 'name'> = {}
+): string {
+  if (!name) throw new AuthError('invalid_input', 'cookie name is required');
   const enc = encodeCookieValue(value);
 
   const parts: string[] = [];
   parts.push(`${name}=${enc}`);
-  parts.push(`Path=${options.path ?? "/"}`);
+  parts.push(`Path=${options.path ?? '/'}`);
 
   if (options.domain) parts.push(`Domain=${options.domain}`);
-  if (options.maxAgeSeconds !== undefined) parts.push(`Max-Age=${Math.floor(options.maxAgeSeconds)}`);
+  if (options.maxAgeSeconds !== undefined)
+    parts.push(`Max-Age=${Math.floor(options.maxAgeSeconds)}`);
 
   const httpOnly = options.httpOnly ?? true;
   const secure = options.secure ?? true;
-  const sameSite = options.sameSite ?? "lax";
+  const sameSite = options.sameSite ?? 'lax';
 
-  if (httpOnly) parts.push("HttpOnly");
-  if (secure) parts.push("Secure");
+  if (httpOnly) parts.push('HttpOnly');
+  if (secure) parts.push('Secure');
   parts.push(`SameSite=${capitalizeSameSite(sameSite)}`);
 
-  return parts.join("; ");
+  return parts.join('; ');
 }
 
-export function serializeDeleteCookie(name: string, options: Omit<CookieOptions, "name"> = {}): string {
+export function serializeDeleteCookie(
+  name: string,
+  options: Omit<CookieOptions, 'name'> = {}
+): string {
   // Expire immediately (Max-Age=0). Keep Path/Domain consistent with original cookie.
-  return serializeCookie(name, "", { ...options, maxAgeSeconds: 0 });
+  return serializeCookie(name, '', { ...options, maxAgeSeconds: 0 });
 }
 
 function encodeCookieValue(value: string): string {
@@ -78,13 +86,11 @@ function decodeCookieValue(value: string): string {
 
 function capitalizeSameSite(v: SameSite): string {
   switch (v) {
-    case "lax":
-      return "Lax";
-    case "strict":
-      return "Strict";
-    case "none":
-      return "None";
+    case 'lax':
+      return 'Lax';
+    case 'strict':
+      return 'Strict';
+    case 'none':
+      return 'None';
   }
 }
-
-

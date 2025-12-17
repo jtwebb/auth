@@ -1,7 +1,7 @@
-import type { ChallengeId, SessionTokenHash, UserId, WebAuthnCredentialId } from "../auth-types.js";
-import type { AuthenticatorTransportFuture, CredentialDeviceType } from "@simplewebauthn/server";
+import type { ChallengeId, SessionTokenHash, UserId, WebAuthnCredentialId } from '../auth-types.js';
+import type { AuthenticatorTransportFuture, CredentialDeviceType } from '@simplewebauthn/server';
 
-export type ChallengeType = "passkey_register" | "passkey_login" | "totp_pending";
+export type ChallengeType = 'passkey_register' | 'passkey_login' | 'totp_pending';
 
 export type StoredChallenge = {
   id: ChallengeId;
@@ -97,7 +97,9 @@ export type AuthStorage = {
     /**
      * Return the enabled TOTP record, if enabled for this user.
      */
-    getEnabled(userId: UserId): Promise<{ encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date } | null>;
+    getEnabled(
+      userId: UserId
+    ): Promise<{ encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date } | null>;
     /**
      * Return the pending secret awaiting verification, if any.
      */
@@ -127,14 +129,22 @@ export type AuthStorage = {
     /**
      * Rotate a session token atomically: insert new, revoke old.
      */
-    rotateSession(oldTokenHash: SessionTokenHash, newSession: SessionRecord, revokedAt: Date): Promise<void>;
+    rotateSession(
+      oldTokenHash: SessionTokenHash,
+      newSession: SessionRecord,
+      revokedAt: Date
+    ): Promise<void>;
   };
 
   webauthn: {
     listCredentialsForUser(userId: UserId): Promise<WebAuthnCredentialRecord[]>;
     getCredentialById(id: WebAuthnCredentialId): Promise<WebAuthnCredentialRecord | null>;
     createCredential(record: WebAuthnCredentialRecord): Promise<void>;
-    updateCredentialCounter(id: WebAuthnCredentialId, counter: number, updatedAt: Date): Promise<void>;
+    updateCredentialCounter(
+      id: WebAuthnCredentialId,
+      counter: number,
+      updatedAt: Date
+    ): Promise<void>;
   };
 
   backupCodes: {
@@ -149,5 +159,3 @@ export type AuthStorage = {
     countRemaining(userId: UserId): Promise<number>;
   };
 };
-
-

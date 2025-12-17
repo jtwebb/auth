@@ -1,4 +1,4 @@
-import type { UserId } from "../auth-types.js";
+import type { UserId } from '../auth-types.js';
 
 export type RotateBackupCodesInput = {
   userId: UserId;
@@ -21,5 +21,3 @@ export type RedeemBackupCodeResult = {
   userId: UserId;
   remaining: number;
 };
-
-
