@@ -1,6 +1,11 @@
 /**
- * React Router v7 adapter exports. Milestone 0: placeholder module surface.
+ * React Router v7 adapter exports.
+ *
+ * Note: this adapter intentionally avoids a hard dependency on react-router packages.
+ * It operates on standard Request/Response objects used by RR loaders/actions.
  */
-export const REACT_ROUTER_ADAPTER_PLACEHOLDER = true as const;
+export * from "./cookies.js";
+export * from "./http.js";
+export * from "./react-router-adapter.js";
 
 
