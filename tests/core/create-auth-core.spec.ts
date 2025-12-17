@@ -69,9 +69,16 @@ describe("core/create-auth-core", () => {
     expect(coreA.hashSessionToken(token)).not.toBe(coreB.hashSessionToken(token));
   });
 
-  it("returns not_implemented errors for milestone-1 command stubs", async () => {
-    const core = createAuthCore({ storage: noopStorage as any });
-    await expect(core.rotateBackupCodes()).rejects.toMatchObject({ code: "not_implemented" });
+  it("rotateBackupCodes is implemented and returns plaintext codes (display-once)", async () => {
+    const core = createAuthCore({
+      storage: noopStorage as any,
+      randomBytes: (n) => new Uint8Array(n).fill(1),
+    });
+
+    const res = await core.rotateBackupCodes({ userId: "u1" as any });
+    expect(res.userId).toBe("u1");
+    expect(Array.isArray(res.codes)).toBe(true);
+    expect(res.codes.length).toBeGreaterThan(0);
   });
 });
 

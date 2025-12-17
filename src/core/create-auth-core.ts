@@ -30,6 +30,8 @@ import {
   startPasskeyLogin,
   startPasskeyRegistration,
 } from "./passkey/passkey-auth.js";
+import type { RedeemBackupCodeInput, RedeemBackupCodeResult, RotateBackupCodesInput, RotateBackupCodesResult } from "./backup-codes/backup-code-types.js";
+import { redeemBackupCode, rotateBackupCodes } from "./backup-codes/backup-codes.js";
 
 export type RandomBytesFn = (size: number) => Uint8Array;
 export type Clock = { now: () => Date };
@@ -78,6 +80,11 @@ export type CreateAuthCoreOptions = {
    * Otherwise, SHA-256(token).
    */
   sessionTokenHashSecret?: Uint8Array | string;
+  /**
+   * Optional secret used to HMAC backup codes before storing.
+   * Strongly recommended to mitigate offline guessing if DB is leaked.
+   */
+  backupCodeHashSecret?: Uint8Array | string;
   policy?: Partial<AuthPolicy>;
 };
 
@@ -93,8 +100,8 @@ export type AuthCore = {
   finishPasskeyRegistration(input: PasskeyRegistrationFinishInput): Promise<PasskeyRegistrationFinishResult>;
   startPasskeyLogin(input: PasskeyLoginStartInput): Promise<PasskeyLoginStartResult>;
   finishPasskeyLogin(input: PasskeyLoginFinishInput): Promise<PasskeyLoginFinishResult>;
-  rotateBackupCodes(): Promise<never>;
-  redeemBackupCode(): Promise<never>;
+  rotateBackupCodes(input: RotateBackupCodesInput): Promise<RotateBackupCodesResult>;
+  redeemBackupCode(input: RedeemBackupCodeInput): Promise<RedeemBackupCodeResult>;
 };
 
 export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
@@ -139,12 +146,6 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     const sessionToken = base64UrlEncode(bytes) as SessionToken;
     const sessionTokenHash = hashSessionToken(sessionToken);
     return { sessionToken, sessionTokenHash };
-  };
-
-  const notImplemented = (name: string): never => {
-    throw new AuthError("not_implemented", `${name} is not implemented yet`, {
-      publicMessage: "Not implemented",
-    });
   };
 
   return {
@@ -205,8 +206,22 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         now: () => clock.now(),
         createSessionToken,
       }),
-    rotateBackupCodes: async () => notImplemented("rotateBackupCodes"),
-    redeemBackupCode: async () => notImplemented("redeemBackupCode"),
+    rotateBackupCodes: async (input) =>
+      rotateBackupCodes({
+        input,
+        storage: options.storage,
+        policy,
+        now: () => clock.now(),
+        randomBytes,
+        backupCodeHashSecret: options.backupCodeHashSecret,
+      }),
+    redeemBackupCode: async (input) =>
+      redeemBackupCode({
+        input,
+        storage: options.storage,
+        now: () => clock.now(),
+        backupCodeHashSecret: options.backupCodeHashSecret,
+      }),
   };
 }
 
