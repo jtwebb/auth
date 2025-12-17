@@ -2,7 +2,7 @@
 
 Secure, framework-agnostic authentication building blocks for Node 20+:
 
-- **Core**: password + passkeys (WebAuthn) + backup codes + DB-backed sessions (opaque token, hashed in DB)
+- **Core**: password + passkeys (WebAuthn) + **TOTP 2FA** + backup codes + DB-backed sessions (opaque token, hashed in DB)
 - **Adapters**: React Router v7 first (`Request`/`Response` based)
 - **React helpers**: passkey flows, hooks, and minimal UI components
 
@@ -42,11 +42,19 @@ const core = createAuthCore({
       origins: ["https://example.com"],
       userVerification: "preferred",
     },
+    totp: {
+      issuer: "Example",
+      digits: 6,
+      periodSeconds: 30,
+      allowedSkewSteps: 1,
+    },
   },
   // Recommended: secrets for hashing tokens/codes
   sessionTokenHashSecret: process.env.SESSION_TOKEN_HMAC_SECRET!,
   backupCodeHashSecret: process.env.BACKUP_CODE_HMAC_SECRET!,
   passwordPepper: process.env.PASSWORD_PEPPER!,
+  // Required for TOTP (2FA): encrypt TOTP secrets at rest
+  totpEncryptionKey: process.env.TOTP_ENCRYPTION_KEY!,
 });
 ```
 
@@ -67,6 +75,16 @@ export const auth = createReactRouterAuthAdapter({
     secure: true,
     sameSite: "lax",
   },
+  // Used during 2FA step-up (httpOnly cookie holding the pending token)
+  totpPendingCookie: {
+    name: "totp",
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAgeSeconds: 60 * 5,
+  },
+  twoFactorRedirectTo: "/two-factor",
 });
 ```
 
@@ -85,6 +103,13 @@ export async function loader({ request }: { request: Request }) {
 - Password register: `auth.actions.passwordRegister(request, { redirectTo: "/" })`
 - Passkey login: `auth.actions.passkeyLoginStart(request)` then `auth.actions.passkeyLoginFinish(request, { redirectTo: "/" })`
 - Logout: `auth.logout(request, { redirectTo: "/login" })`
+- TOTP enrollment: `auth.actions.totpEnrollmentStart(request)` then `auth.actions.totpEnrollmentFinish(request)`
+- TOTP verification (step-up): `auth.actions.totpVerify(request, { redirectTo: "/" })`
+
+### 2FA (TOTP) flow (server)
+
+- If TOTP is enabled for a user, **password/passkey login will redirect to** `twoFactorRedirectTo` and set an **httpOnly** `totp` cookie.
+- Your `/two-factor` page should POST a form with `code` to the `totpVerify` action endpoint.
 
 ## React helpers usage (browser)
 
@@ -110,6 +135,8 @@ await passkeys.login(); // passkey-first (discoverable)
 - `PasskeyRegistrationButton`
 - `BackupCodesDisplay`
 - `BackupCodeRedeemForm`
+- `TotpSetup`
+- `TotpVerifyForm`
 
 ## Security notes (must read)
 

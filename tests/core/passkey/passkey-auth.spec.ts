@@ -76,6 +76,14 @@ function makeMemoryStorage() {
         return c;
       },
     },
+    totp: {
+      getEnabled: async () => null,
+      getPending: async () => null,
+      setPending: async () => undefined,
+      enableFromPending: async () => undefined,
+      disable: async () => undefined,
+      updateLastUsedAt: async () => undefined,
+    },
     sessions: {
       createSession: async (s) => {
         sessions.set(s.tokenHash as any, s);

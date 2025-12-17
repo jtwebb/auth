@@ -63,8 +63,19 @@ export type AuthPolicy = {
   password: PasswordPolicy;
   passkey: PasskeyPolicy;
   backupCodes: BackupCodePolicy;
+  totp: TotpPolicy;
   session: SessionPolicy;
   challenge: ChallengePolicy;
+};
+
+export type TotpPolicy = {
+  issuer: string;
+  digits: 6 | 8;
+  periodSeconds: 30 | 60;
+  /**
+   * Accept codes from +/- this many time-steps to handle minor clock skew.
+   */
+  allowedSkewSteps: number;
 };
 
 export const defaultAuthPolicy: AuthPolicy = {
@@ -81,6 +92,12 @@ export const defaultAuthPolicy: AuthPolicy = {
   backupCodes: {
     count: 10,
     length: 10,
+  },
+  totp: {
+    issuer: "localhost",
+    digits: 6,
+    periodSeconds: 30,
+    allowedSkewSteps: 1,
   },
   session: {
     absoluteTtlMs: 1000 * 60 * 60 * 24 * 30, // 30d

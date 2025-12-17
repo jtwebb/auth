@@ -35,6 +35,16 @@ import type { RedeemBackupCodeInput, RedeemBackupCodeResult, RotateBackupCodesIn
 import { redeemBackupCode, rotateBackupCodes } from "./backup-codes/backup-codes.js";
 import type { RevokeSessionInput, RevokeSessionResult, ValidateSessionInput, ValidateSessionResult } from "./sessions/session-types.js";
 import { revokeAllUserSessions, revokeSession, validateSession } from "./sessions/sessions.js";
+import type {
+  FinishTotpEnrollmentInput,
+  FinishTotpEnrollmentResult,
+  StartTotpEnrollmentInput,
+  StartTotpEnrollmentResult,
+  VerifyTotpInput,
+  VerifyTotpResult,
+} from "./totp/totp-types.js";
+import { finishTotpEnrollment, startTotpEnrollment, verifyTotp } from "./totp/totp.js";
+import type { TotpEncryptionKey } from "./totp/totp-crypto.js";
 
 export type RandomBytesFn = (size: number) => Uint8Array;
 export type Clock = { now: () => Date };
@@ -88,6 +98,10 @@ export type CreateAuthCoreOptions = {
    * Strongly recommended to mitigate offline guessing if DB is leaked.
    */
   backupCodeHashSecret?: Uint8Array | string;
+  /**
+   * Required to enable TOTP features. Store in a secrets manager.
+   */
+  totpEncryptionKey?: TotpEncryptionKey;
   policy?: Partial<AuthPolicy>;
 };
 
@@ -108,6 +122,9 @@ export type AuthCore = {
   validateSession(input: ValidateSessionInput): Promise<ValidateSessionResult>;
   revokeSession(input: RevokeSessionInput): Promise<RevokeSessionResult>;
   revokeAllUserSessions(userId: UserId): Promise<void>;
+  startTotpEnrollment(input: StartTotpEnrollmentInput): Promise<StartTotpEnrollmentResult>;
+  finishTotpEnrollment(input: FinishTotpEnrollmentInput): Promise<FinishTotpEnrollmentResult>;
+  verifyTotp(input: VerifyTotpInput): Promise<VerifyTotpResult>;
 };
 
 export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
@@ -177,6 +194,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         policy,
         now: () => clock.now(),
         createSessionToken,
+        randomBytes,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
         onAuthAttempt: options.onAuthAttempt,
@@ -211,6 +229,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         policy,
         now: () => clock.now(),
         createSessionToken,
+        randomBytes,
       }),
     rotateBackupCodes: async (input) =>
       rotateBackupCodes({
@@ -250,6 +269,38 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         storage: options.storage,
         now: () => clock.now(),
       }),
+    startTotpEnrollment: async (input) => {
+      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+      return startTotpEnrollment({
+        input,
+        storage: options.storage,
+        policy,
+        now: () => clock.now(),
+        totpEncryptionKey: options.totpEncryptionKey,
+        randomBytes,
+      });
+    },
+    finishTotpEnrollment: async (input) => {
+      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+      return finishTotpEnrollment({
+        input,
+        storage: options.storage,
+        policy,
+        now: () => clock.now(),
+        totpEncryptionKey: options.totpEncryptionKey,
+      });
+    },
+    verifyTotp: async (input) => {
+      if (!options.totpEncryptionKey) throw new AuthError("invalid_input", "totpEncryptionKey is required");
+      return verifyTotp({
+        input,
+        storage: options.storage,
+        policy,
+        now: () => clock.now(),
+        totpEncryptionKey: options.totpEncryptionKey,
+        createSessionToken,
+      });
+    },
   };
 }
 
@@ -296,6 +347,12 @@ function validatePolicy(policy: AuthPolicy): void {
   }
   if (policy.backupCodes.length < 8 || policy.backupCodes.length > 64) {
     throw new AuthError("invalid_input", "policy.backupCodes.length must be between 8 and 64");
+  }
+  if (!policy.totp.issuer) {
+    throw new AuthError("invalid_input", "policy.totp.issuer is required");
+  }
+  if (policy.totp.allowedSkewSteps < 0 || policy.totp.allowedSkewSteps > 10) {
+    throw new AuthError("invalid_input", "policy.totp.allowedSkewSteps must be between 0 and 10");
   }
   if (policy.session.absoluteTtlMs < 1000 * 60) {
     throw new AuthError("invalid_input", "policy.session.absoluteTtlMs must be at least 1 minute");

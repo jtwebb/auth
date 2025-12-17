@@ -40,4 +40,20 @@ export type BackupCodeRedeemPayload = {
   code: string;
 };
 
+export type TotpEnrollmentStartPayload = {
+  userId: string;
+  accountName: string;
+};
+
+export type TotpEnrollmentStartResult = {
+  userId: string;
+  secretBase32: string;
+  otpauthUri: string;
+};
+
+export type TotpEnrollmentFinishPayload = {
+  userId: string;
+  code: string;
+};
+
 

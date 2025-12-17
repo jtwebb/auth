@@ -6,6 +6,7 @@ export * from "./create-auth-core.js";
 export * from "./passkey/passkey-types.js";
 export * from "./password/password-hash.js";
 export * from "./sessions/session-types.js";
+export * from "./totp/totp-types.js";
 export * from "./storage/auth-storage.js";
 
 

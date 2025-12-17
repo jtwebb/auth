@@ -5,6 +5,7 @@ import type { AuthStorage, SessionRecord } from "../storage/auth-storage.js";
 import type { AuthAttemptEvent } from "../create-auth-core.js";
 import { defaultArgon2Params, hashPassword, verifyPassword } from "./password-hash.js";
 import type { Argon2Params } from "./password-hash.js";
+import { createTotpPending } from "../totp/totp.js";
 
 export type PasswordAuthContext = {
   input: PasswordLoginInput;
@@ -12,6 +13,7 @@ export type PasswordAuthContext = {
   policy: AuthPolicy;
   now: () => Date;
   createSessionToken: () => { sessionToken: any; sessionTokenHash: any };
+  randomBytes: (size: number) => Uint8Array;
   passwordPepper?: string | Uint8Array;
   passwordHashParams?: Partial<Argon2Params>;
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
@@ -142,6 +144,25 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
       createdAt: cred.createdAt,
       updatedAt: now,
     });
+  }
+
+  // If TOTP is enabled, require step-up instead of issuing a session immediately.
+  const totpEnabled = await storage.totp.getEnabled(userId);
+  if (totpEnabled) {
+    const pendingToken = await createTotpPending({
+      userId,
+      storage,
+      now: () => now,
+      randomBytes: ctx.randomBytes,
+      ttlMs: policy.challenge.ttlMs,
+    });
+    await safeAttemptHook(ctx.onAuthAttempt, {
+      type: "password_login",
+      identifier,
+      userId: userId as unknown as string,
+      ok: true,
+    });
+    return { twoFactorRequired: true, userId, pendingToken };
   }
 
   const session = ctx.createSessionToken();

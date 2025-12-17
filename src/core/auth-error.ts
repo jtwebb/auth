@@ -13,7 +13,10 @@ export type AuthErrorCode =
   | "challenge_invalid"
   | "challenge_expired"
   | "backup_code_invalid"
-  | "backup_code_consumed";
+  | "backup_code_consumed"
+  | "two_factor_required"
+  | "totp_invalid"
+  | "totp_not_enabled";
 
 export type AuthErrorOptions = {
   cause?: unknown;
@@ -57,6 +60,7 @@ export function defaultStatusForCode(code: AuthErrorCode): number {
     case "backup_code_consumed":
     case "challenge_invalid":
     case "challenge_expired":
+    case "totp_invalid":
       return 401;
     case "forbidden":
       return 403;

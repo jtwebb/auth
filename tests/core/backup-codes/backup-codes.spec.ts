@@ -18,6 +18,14 @@ function makeMemoryStorage() {
       createChallenge: async () => undefined,
       consumeChallenge: async () => null,
     },
+    totp: {
+      getEnabled: async () => null,
+      getPending: async () => null,
+      setPending: async () => undefined,
+      enableFromPending: async () => undefined,
+      disable: async () => undefined,
+      updateLastUsedAt: async () => undefined,
+    },
     sessions: {
       createSession: async () => undefined,
       getSessionByTokenHash: async () => null,

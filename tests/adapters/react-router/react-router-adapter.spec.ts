@@ -10,6 +10,14 @@ function makeMemoryStorage() {
     users: { getUserIdByIdentifier: async () => null, createUser: async () => "u1" as any },
     passwordCredentials: { getForUser: async () => null, upsertForUser: async () => undefined },
     challenges: { createChallenge: async () => undefined, consumeChallenge: async () => null },
+    totp: {
+      getEnabled: async () => null,
+      getPending: async () => null,
+      setPending: async () => undefined,
+      enableFromPending: async () => undefined,
+      disable: async () => undefined,
+      updateLastUsedAt: async () => undefined,
+    },
     sessions: {
       createSession: async (s) => sessions.set(s.tokenHash as any, s),
       getSessionByTokenHash: async (h) => sessions.get(h as any) ?? null,

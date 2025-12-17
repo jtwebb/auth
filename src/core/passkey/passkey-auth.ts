@@ -21,6 +21,7 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { createHash } from "node:crypto";
+import { createTotpPending } from "../totp/totp.js";
 
 export type PasskeyStartContext<I, O> = {
   input: I;
@@ -163,6 +164,7 @@ export async function finishPasskeyLogin(ctx: {
   policy: AuthPolicy;
   now: () => Date;
   createSessionToken: () => CreateSessionTokenResult;
+  randomBytes: RandomBytesFn;
 }): Promise<PasskeyLoginFinishResult> {
   const now = ctx.now();
   const stored = await ctx.storage.challenges.consumeChallenge(ctx.input.challengeId);
@@ -196,6 +198,18 @@ export async function finishPasskeyLogin(ctx: {
   if (!verification.verified) throw invalidPasskey();
 
   await ctx.storage.webauthn.updateCredentialCounter(record.id, verification.authenticationInfo.newCounter, now);
+
+  const totpEnabled = await ctx.storage.totp.getEnabled(record.userId);
+  if (totpEnabled) {
+    const pendingToken = await createTotpPending({
+      userId: record.userId,
+      storage: ctx.storage,
+      now: () => now,
+      randomBytes: ctx.randomBytes,
+      ttlMs: ctx.policy.challenge.ttlMs,
+    });
+    return { twoFactorRequired: true, userId: record.userId, pendingToken };
+  }
 
   const session = ctx.createSessionToken();
   const expiresAt = new Date(now.getTime() + ctx.policy.session.absoluteTtlMs);

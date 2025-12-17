@@ -1,7 +1,7 @@
 import type { ChallengeId, SessionTokenHash, UserId, WebAuthnCredentialId } from "../auth-types.js";
 import type { AuthenticatorTransportFuture, CredentialDeviceType } from "@simplewebauthn/server";
 
-export type ChallengeType = "passkey_register" | "passkey_login";
+export type ChallengeType = "passkey_register" | "passkey_login" | "totp_pending";
 
 export type StoredChallenge = {
   id: ChallengeId;
@@ -91,6 +91,27 @@ export type AuthStorage = {
      * Consume a challenge exactly once. Return it if found and not consumed.
      */
     consumeChallenge(id: ChallengeId): Promise<StoredChallenge | null>;
+  };
+
+  totp: {
+    /**
+     * Return the enabled TOTP record, if enabled for this user.
+     */
+    getEnabled(userId: UserId): Promise<{ encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date } | null>;
+    /**
+     * Return the pending secret awaiting verification, if any.
+     */
+    getPending(userId: UserId): Promise<{ encryptedSecret: string; createdAt: Date } | null>;
+    /**
+     * Store a pending secret awaiting verification.
+     */
+    setPending(userId: UserId, encryptedSecret: string, createdAt: Date): Promise<void>;
+    /**
+     * Enable pending secret (atomic). Should clear pending state.
+     */
+    enableFromPending(userId: UserId, enabledAt: Date): Promise<void>;
+    disable(userId: UserId, disabledAt: Date): Promise<void>;
+    updateLastUsedAt(userId: UserId, lastUsedAt: Date): Promise<void>;
   };
 
   sessions: {

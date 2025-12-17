@@ -46,9 +46,8 @@ export type PasskeyLoginFinishInput = {
   response: AuthenticationResponseJSON;
 };
 
-export type PasskeyLoginFinishResult = {
-  userId: UserId;
-  session: CreateSessionTokenResult;
-};
+export type PasskeyLoginFinishResult =
+  | { twoFactorRequired: true; userId: UserId; pendingToken: ChallengeId }
+  | { twoFactorRequired?: false; userId: UserId; session: CreateSessionTokenResult };
 
 

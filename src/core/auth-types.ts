@@ -19,10 +19,9 @@ export type PasswordLoginInput = {
   password: string;
 };
 
-export type PasswordLoginResult = {
-  userId: UserId;
-  session: CreateSessionTokenResult;
-};
+export type PasswordLoginResult =
+  | { twoFactorRequired: true; userId: UserId; pendingToken: ChallengeId }
+  | { twoFactorRequired?: false; userId: UserId; session: CreateSessionTokenResult };
 
 export type PasswordRegisterInput = {
   identifier: string;
