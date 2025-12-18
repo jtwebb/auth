@@ -1,4 +1,5 @@
 import { core } from './auth.js';
+import { storage } from './auth.js';
 
 /**
  * Passkey-only signup pattern (illustrative):
@@ -12,11 +13,7 @@ export async function startPasskeyOnlyRegistration(input: {
   identifier: string;
   displayName?: string;
 }) {
-  // Apps implement this via their AuthStorage/users layer.
-  // The library doesn't ship a DB adapter, so this is pseudo-code:
-  //
-  // const userId = await storage.users.createUser(input.identifier)
-  const userId = 'new-user-id' as any;
+  const userId = await storage.users.createUser(input.identifier);
 
   return await core.startPasskeyRegistration({
     userId,

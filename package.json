@@ -13,6 +13,14 @@
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core/index.js"
     },
+    "./pg": {
+      "types": "./dist/adapters/pg/index.d.ts",
+      "import": "./dist/adapters/pg/index.js"
+    },
+    "./kysely": {
+      "types": "./dist/adapters/kysely/index.d.ts",
+      "import": "./dist/adapters/kysely/index.js"
+    },
     "./react-router": {
       "types": "./dist/adapters/react-router/index.d.ts",
       "import": "./dist/adapters/react-router/index.js"
@@ -25,7 +33,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test:pg:integration": "AUTH_PG_INTEGRATION=1 vitest run",
+    "test:kysely:integration": "AUTH_KYSELY_INTEGRATION=1 vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "keywords": [
@@ -45,6 +55,8 @@
     "dist"
   ],
   "peerDependencies": {
+    "kysely": "^0.28.0",
+    "pg": "^8.16.3",
     "react": ">=18",
     "react-dom": ">=18"
   },
@@ -54,9 +66,12 @@
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
     "eslint": "^9.39.2",
+    "kysely": "^0.28.0",
+    "pg": "^8.16.3",
     "prettier": "^3.7.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "testcontainers": "^11.7.2",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.50.0",
     "vitest": "^4.0.16"

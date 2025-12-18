@@ -5,8 +5,17 @@ This folder shows how to wire:
 - `@jtwebb/auth/core` (your storage implementation)
 - `@jtwebb/auth/react-router` adapter (cookie + CSRF/origin checks)
 - `@jtwebb/auth/react` helpers (passkey flow + small UI components)
+- `@jtwebb/auth/pg` (optional DB adapter; easiest starting point)
 
 It’s intentionally a **skeleton** so it doesn’t pull in framework/build dependencies in the main library repo.
+
+## Database
+
+This example uses the `pg` adapter in `examples/react-router-v7/server/auth.ts`.
+
+- Apply migrations:
+  - `psql "$DATABASE_URL" -f node_modules/@jtwebb/auth/dist/adapters/pg/migrations/001_init.sql`
+- Set `DATABASE_URL`.
 
 ## Endpoints you’ll expose
 

@@ -17,6 +17,8 @@ npm i @jtwebb/auth
 - `@jtwebb/auth/core`
 - `@jtwebb/auth/react-router`
 - `@jtwebb/auth/react`
+- `@jtwebb/auth/pg`
+- `@jtwebb/auth/kysely`
 
 ## Core usage (server)
 
@@ -28,6 +30,15 @@ Core is DB-agnostic. You implement `AuthStorage` against your DB. The key securi
 - **Passwords**: store only Argon2id PHC hashes (never plaintext)
 - **Passkeys**: store credential `id` (base64url), `publicKey`, and `counter`
 - **Challenges + backup codes**: consume exactly once (atomic)
+
+#### Optional: database adapters
+
+If you don't want to hand-roll `AuthStorage`, there are optional adapters:
+
+- `@jtwebb/auth/pg`
+- `@jtwebb/auth/kysely`
+
+See `docs/database-adapters.md`.
 
 #### Sample Postgres `AuthStorage` (schema + implementation sketch)
 
@@ -111,33 +122,71 @@ CREATE TABLE auth_totp (
 
 ```ts
 import type { Pool, PoolClient } from 'pg';
-import type { AuthStorage } from '@jtwebb/auth/core';
+import type {
+  AuthStorage,
+  ChallengeId,
+  PasswordCredentialRecord,
+  SessionRecord,
+  SessionTokenHash,
+  StoredChallenge,
+  UserId,
+  WebAuthnCredentialId,
+  WebAuthnCredentialRecord
+} from '@jtwebb/auth/core';
+import type { AuthenticatorTransportFuture, CredentialDeviceType } from '@simplewebauthn/server';
 
-function toDate(v: any): Date {
+function toDate(v: Date | string | number): Date {
   return v instanceof Date ? v : new Date(v);
+}
+
+function toOptionalDate(v: Date | string | number | null | undefined): Date | undefined {
+  if (v == null) return undefined;
+  return toDate(v);
+}
+
+// Core uses "branded" string types (UserId, ChallengeId, SessionTokenHash, ...)
+// so apps typically centralize the casts in tiny helpers like these.
+function asUserId(v: string): UserId {
+  return v as UserId;
+}
+function asChallengeId(v: string): ChallengeId {
+  return v as ChallengeId;
+}
+function asSessionTokenHash(v: string): SessionTokenHash {
+  return v as SessionTokenHash;
+}
+function asWebAuthnCredentialId(v: string): WebAuthnCredentialId {
+  return v as WebAuthnCredentialId;
 }
 
 export function createPostgresAuthStorage(pool: Pool): AuthStorage {
   return {
     users: {
       async getUserIdByIdentifier(identifier) {
-        const res = await pool.query(`SELECT id FROM auth_users WHERE identifier = $1`, [
-          identifier
-        ]);
-        return (res.rows[0]?.id ?? null) as any;
+        const res = await pool.query<{ id: string }>(
+          `SELECT id FROM auth_users WHERE identifier = $1`,
+          [identifier]
+        );
+        const id = res.rows[0]?.id;
+        return id ? asUserId(id) : null;
       },
       async createUser(identifier) {
-        const res = await pool.query(
+        const res = await pool.query<{ id: string }>(
           `INSERT INTO auth_users (identifier) VALUES ($1) RETURNING id`,
           [identifier]
         );
-        return res.rows[0].id as any;
+        return asUserId(res.rows[0].id);
       }
     },
 
     passwordCredentials: {
       async getForUser(userId) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          user_id: string;
+          password_hash: string;
+          created_at: Date | string;
+          updated_at: Date | string | null;
+        }>(
           `SELECT user_id, password_hash, created_at, updated_at
            FROM auth_password_credentials
            WHERE user_id = $1`,
@@ -145,12 +194,13 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
         const r = res.rows[0];
         if (!r) return null;
-        return {
-          userId: r.user_id,
+        const out: PasswordCredentialRecord = {
+          userId: asUserId(r.user_id),
           passwordHash: r.password_hash,
           createdAt: toDate(r.created_at),
-          updatedAt: r.updated_at ? toDate(r.updated_at) : undefined
-        } as any;
+          updatedAt: toOptionalDate(r.updated_at)
+        };
+        return out;
       },
       async upsertForUser(record) {
         await pool.query(
@@ -172,7 +222,13 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
       },
       async consumeChallenge(id) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          id: string;
+          type: StoredChallenge['type'];
+          user_id: string | null;
+          challenge: string;
+          expires_at: Date | string;
+        }>(
           `DELETE FROM auth_challenges
            WHERE id = $1
            RETURNING id, type, user_id, challenge, expires_at`,
@@ -180,19 +236,24 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
         const r = res.rows[0];
         if (!r) return null;
-        return {
-          id: r.id,
+        const out: StoredChallenge = {
+          id: asChallengeId(r.id),
           type: r.type,
-          userId: r.user_id ?? undefined,
+          userId: r.user_id ? asUserId(r.user_id) : undefined,
           challenge: r.challenge,
           expiresAt: toDate(r.expires_at)
-        } as any;
+        };
+        return out;
       }
     },
 
     totp: {
       async getEnabled(userId) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          encrypted_secret: string;
+          enabled_at: Date | string;
+          last_used_at: Date | string | null;
+        }>(
           `SELECT encrypted_secret, enabled_at, last_used_at
            FROM auth_totp
            WHERE user_id = $1 AND enabled_at IS NOT NULL`,
@@ -203,11 +264,14 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         return {
           encryptedSecret: r.encrypted_secret,
           enabledAt: toDate(r.enabled_at),
-          lastUsedAt: r.last_used_at ? toDate(r.last_used_at) : undefined
+          lastUsedAt: toOptionalDate(r.last_used_at)
         };
       },
       async getPending(userId) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          encrypted_secret: string;
+          pending_created_at: Date | string;
+        }>(
           `SELECT encrypted_secret, pending_created_at
            FROM auth_totp
            WHERE user_id = $1 AND enabled_at IS NULL AND pending_created_at IS NOT NULL`,
@@ -234,7 +298,7 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
           [userId, enabledAt]
         );
       },
-      async disable(userId) {
+      async disable(userId, _disabledAt) {
         await pool.query(`DELETE FROM auth_totp WHERE user_id = $1`, [userId]);
       },
       async updateLastUsedAt(userId, lastUsedAt) {
@@ -262,7 +326,15 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
       },
       async getSessionByTokenHash(tokenHash) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          token_hash: string;
+          user_id: string;
+          created_at: Date | string;
+          last_seen_at: Date | string | null;
+          expires_at: Date | string;
+          revoked_at: Date | string | null;
+          rotated_from_hash: string | null;
+        }>(
           `SELECT token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash
            FROM auth_sessions
            WHERE token_hash = $1`,
@@ -270,15 +342,16 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
         const r = res.rows[0];
         if (!r) return null;
-        return {
-          tokenHash: r.token_hash,
-          userId: r.user_id,
+        const out: SessionRecord = {
+          tokenHash: asSessionTokenHash(r.token_hash),
+          userId: asUserId(r.user_id),
           createdAt: toDate(r.created_at),
-          lastSeenAt: r.last_seen_at ? toDate(r.last_seen_at) : undefined,
+          lastSeenAt: toOptionalDate(r.last_seen_at),
           expiresAt: toDate(r.expires_at),
-          revokedAt: r.revoked_at ? toDate(r.revoked_at) : undefined,
-          rotatedFromHash: r.rotated_from_hash ?? undefined
-        } as any;
+          revokedAt: toOptionalDate(r.revoked_at),
+          rotatedFromHash: r.rotated_from_hash ? asSessionTokenHash(r.rotated_from_hash) : undefined
+        };
+        return out;
       },
       async touchSession(tokenHash, lastSeenAt) {
         await pool.query(
@@ -321,7 +394,7 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
     },
 
     backupCodes: {
-      async replaceCodes(userId, codes) {
+      async replaceCodes(userId, codes, _rotatedAt) {
         await withTx(pool, async tx => {
           await tx.query(`DELETE FROM auth_backup_codes WHERE user_id = $1`, [userId]);
           for (const c of codes) {
@@ -344,39 +417,66 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         return res.rowCount === 1;
       },
       async countRemaining(userId) {
-        const res = await pool.query(
+        const res = await pool.query<{ n: string | number }>(
           `SELECT COUNT(*)::int AS n
            FROM auth_backup_codes
            WHERE user_id = $1 AND consumed_at IS NULL`,
           [userId]
         );
-        return res.rows[0].n as number;
+        const n = res.rows[0]?.n ?? 0;
+        return typeof n === 'number' ? n : Number.parseInt(n, 10);
       }
     },
 
     webauthn: {
       async listCredentialsForUser(userId) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          id: string;
+          user_id: string;
+          credential_id: string;
+          public_key: Buffer;
+          counter: number;
+          transports: string[] | null;
+          credential_device_type: string | null;
+          credential_backed_up: boolean | null;
+          created_at: Date | string;
+          updated_at: Date | string | null;
+        }>(
           `SELECT id, user_id, credential_id, public_key, counter, transports, credential_device_type, credential_backed_up, created_at, updated_at
            FROM auth_webauthn_credentials
            WHERE user_id = $1`,
           [userId]
         );
-        return res.rows.map(r => ({
-          id: r.id,
-          userId: r.user_id,
-          credentialId: r.credential_id,
-          publicKey: new Uint8Array(r.public_key),
-          counter: r.counter,
-          transports: r.transports ?? undefined,
-          credentialDeviceType: r.credential_device_type ?? undefined,
-          credentialBackedUp: r.credential_backed_up ?? undefined,
-          createdAt: toDate(r.created_at),
-          updatedAt: r.updated_at ? toDate(r.updated_at) : undefined
-        })) as any;
+        return res.rows.map(
+          (r): WebAuthnCredentialRecord => ({
+            id: asWebAuthnCredentialId(r.id),
+            userId: asUserId(r.user_id),
+            credentialId: r.credential_id,
+            publicKey: new Uint8Array(r.public_key),
+            counter: r.counter,
+            transports: (r.transports ?? undefined) as AuthenticatorTransportFuture[] | undefined,
+            credentialDeviceType: (r.credential_device_type ?? undefined) as
+              | CredentialDeviceType
+              | undefined,
+            credentialBackedUp: r.credential_backed_up ?? undefined,
+            createdAt: toDate(r.created_at),
+            updatedAt: toOptionalDate(r.updated_at)
+          })
+        );
       },
       async getCredentialById(id) {
-        const res = await pool.query(
+        const res = await pool.query<{
+          id: string;
+          user_id: string;
+          credential_id: string;
+          public_key: Buffer;
+          counter: number;
+          transports: string[] | null;
+          credential_device_type: string | null;
+          credential_backed_up: boolean | null;
+          created_at: Date | string;
+          updated_at: Date | string | null;
+        }>(
           `SELECT id, user_id, credential_id, public_key, counter, transports, credential_device_type, credential_backed_up, created_at, updated_at
            FROM auth_webauthn_credentials
            WHERE id = $1`,
@@ -384,18 +484,21 @@ export function createPostgresAuthStorage(pool: Pool): AuthStorage {
         );
         const r = res.rows[0];
         if (!r) return null;
-        return {
-          id: r.id,
-          userId: r.user_id,
+        const out: WebAuthnCredentialRecord = {
+          id: asWebAuthnCredentialId(r.id),
+          userId: asUserId(r.user_id),
           credentialId: r.credential_id,
           publicKey: new Uint8Array(r.public_key),
           counter: r.counter,
-          transports: r.transports ?? undefined,
-          credentialDeviceType: r.credential_device_type ?? undefined,
+          transports: (r.transports ?? undefined) as AuthenticatorTransportFuture[] | undefined,
+          credentialDeviceType: (r.credential_device_type ?? undefined) as
+            | CredentialDeviceType
+            | undefined,
           credentialBackedUp: r.credential_backed_up ?? undefined,
           createdAt: toDate(r.created_at),
-          updatedAt: r.updated_at ? toDate(r.updated_at) : undefined
-        } as any;
+          updatedAt: toOptionalDate(r.updated_at)
+        };
+        return out;
       },
       async createCredential(record) {
         await pool.query(

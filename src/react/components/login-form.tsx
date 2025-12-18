@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 export type LoginFormProps = {
-  onSubmit: (input: { identifier: string; password: string }) => Promise<void> | void;
+  onSubmit?: (input: { identifier: string; password: string }) => Promise<void> | void;
   defaultIdentifier?: string;
   submitLabel?: string;
 };
@@ -20,7 +20,7 @@ export function LoginForm(props: LoginFormProps) {
         setIsSubmitting(true);
         setError(null);
         try {
-          await props.onSubmit({ identifier, password });
+          (await props.onSubmit?.({ identifier, password })) ?? Promise.resolve();
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Login failed');
         } finally {
