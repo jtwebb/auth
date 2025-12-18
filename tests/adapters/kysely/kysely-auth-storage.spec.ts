@@ -41,7 +41,7 @@ describe('kysely adapter: createKyselyAuthStorage (smoke)', () => {
     const storage = createKyselyAuthStorage({ db });
 
     await storage.users.getUserIdByIdentifier('a@example.com');
-    expect(calls[0]).toEqual({ op: 'selectFrom', table: 'auth_users' });
+    expect(calls[0]).toEqual({ op: 'selectFrom', table: 'authUsers' });
   });
 
   it('supports tablePrefix and internal transactions', async () => {
@@ -58,6 +58,7 @@ describe('kysely adapter: createKyselyAuthStorage (smoke)', () => {
       },
       new Date()
     );
-    expect(calls.some(c => c.table === 'x_auth_sessions')).toBe(true);
+
+    expect(calls.some(c => c.table === 'x_authSessions')).toBe(true);
   });
 });
