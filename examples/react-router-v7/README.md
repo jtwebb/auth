@@ -1,61 +1,55 @@
-# React Router v7 example (skeleton)
+# React Router v7 Framework example (loaders/actions) + Kysely
 
-This folder shows how to wire:
+This folder is a **copy/paste example** meant to drop into a React Router v7 Framework app created with:
 
-- `@jtwebb/auth/core` (your storage implementation)
-- `@jtwebb/auth/react-router` adapter (cookie + CSRF/origin checks)
-- `@jtwebb/auth/react` helpers (passkey flow + small UI components)
-- `@jtwebb/auth/pg` (optional DB adapter; easiest starting point)
+```bash
+npx create-react-router@latest --template remix-run/react-router-templates/minimal
+```
 
-It’s intentionally a **skeleton** so it doesn’t pull in framework/build dependencies in the main library repo.
+It demonstrates, in **route modules** (loaders/actions) rather than `fetch()` in components:
 
-## Database
+- Password + passkey registration
+- Password + passkey login (discoverable passkey login too)
+- 2FA (TOTP) enable/disable, and login with/without 2FA
+- Backup codes rotation + using a backup code as a 2FA fallback
+- CSRF protection via **Origin checks** (same-origin enforcement)
+- A protected page (loader gate) and session rotation header propagation
 
-This example uses the `pg` adapter in `examples/react-router-v7/server/auth.ts`.
+Everything uses the **Kysely adapter** (`@jtwebb/auth/kysely`).
 
-- Apply migrations:
-  - `psql "$DATABASE_URL" -f node_modules/@jtwebb/auth/dist/adapters/pg/migrations/001_init.sql`
-- Set `DATABASE_URL`.
+## How to use (copy/paste)
 
-## Endpoints you’ll expose
+1. Create a new app:
 
-- `POST /api/auth/login` (password) → `auth.actions.passwordLogin`
-- `POST /api/auth/register` (password) → `auth.actions.passwordRegister`
-- `POST /api/auth/register` (password) → `auth.actions.passwordRegister`
-- `POST /api/passkeys/register/start` → `auth.actions.passkeyRegistrationStart`
-- `POST /api/passkeys/register/finish` → `auth.actions.passkeyRegistrationFinish`
-- `POST /api/passkeys/login/start` → `auth.actions.passkeyLoginStart`
-- `POST /api/passkeys/login/finish` → `auth.actions.passkeyLoginFinish`
-- `POST /api/auth/logout` → `auth.logout`
+```bash
+npx create-react-router@latest --template remix-run/react-router-templates/minimal
+```
 
-## Protecting routes (loaders)
+2. Copy this folder’s `app/` contents into your app’s `app/` directory:
 
-In any loader that requires auth:
+- `examples/react-router-v7/app/*` → `your-app/app/*`
 
-- Call `auth.requireUser(request, { redirectTo: "/login" })`
-- Return the loader response with the **returned headers** (so session rotation `Set-Cookie` is applied)
+3. Install deps in your app:
 
-See `examples/react-router-v7/server/protected-loader.ts`.
+```bash
+npm i @jtwebb/auth kysely pg @simplewebauthn/browser
+```
 
-## Passkey-only registration
+4. Configure env:
 
-Passkey registration requires a `userId`. For “passkey-only” signup:
+- **`DATABASE_URL`**: Postgres URL
+- **`SESSION_TOKEN_HMAC_SECRET`**: random secret
+- **`BACKUP_CODE_HMAC_SECRET`**: random secret
+- **`PASSWORD_PEPPER`**: random secret
+- **`TOTP_ENCRYPTION_KEY`**: required to enable TOTP enrollment/verification
+- **`APP_ORIGIN`**: e.g. `http://localhost:5173` (used for CSRF Origin checks + passkey origins)
+- **`RP_ID`**: e.g. `localhost` (passkey relying party id)
 
-- Create the user record server-side first (no password credential)
-- Then start passkey registration for that user
+5. Apply auth DB migrations (Kysely migration functions shipped by this package):
 
-See:
+- See `app/scripts/migrate-auth.ts`
 
-- `examples/react-router-v7/server/passkey-only-register.ts` (server flow)
-- `examples/react-router-v7/routes/passkey-only-register.tsx` (UI)
+## Notes
 
-## Files
-
-- `examples/react-router-v7/server/auth.ts`: creates `AuthCore` and `createReactRouterAuthAdapter`
-- `examples/react-router-v7/server/routes.ts`: request handlers for auth endpoints (illustrative)
-- `examples/react-router-v7/server/protected-loader.ts`: route protection example (illustrative)
-- `examples/react-router-v7/server/passkey-only-register.ts`: passkey-only signup example (illustrative)
-- `examples/react-router-v7/routes/login.tsx`: UI using `LoginForm` + `PasskeyLoginButton`
-- `examples/react-router-v7/routes/register.tsx`: UI showing password registration
-- `examples/react-router-v7/routes/protected.tsx`: UI for a protected page
-- `examples/react-router-v7/routes/passkey-only-register.tsx`: UI showing passkey-only registration
+- **CSRF**: this example uses the library’s Origin checks (`assertSameOrigin`). Your forms/fetchers must be same-origin.
+- **Kysely adapter**: uses `returning(...)` for consume-once operations (Postgres works well).

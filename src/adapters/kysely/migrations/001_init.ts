@@ -19,6 +19,7 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .addColumn('id', 'text', col => col.primaryKey())
     .addColumn('identifier', 'text', col => col.notNull().unique())
     .addColumn('created_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
+    .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
     .execute();
 
   await db.schema
@@ -57,6 +58,8 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .addColumn('user_id', 'text', col => col.references('auth_users.id').onDelete('cascade'))
     .addColumn('challenge', 'text', col => col.notNull())
     .addColumn('expires_at', 'timestamptz', col => col.notNull())
+    .addColumn('created_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
+    .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
     .execute();
 
   await db.schema
@@ -78,6 +81,7 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .addColumn('expires_at', 'timestamptz', col => col.notNull())
     .addColumn('revoked_at', 'timestamptz')
     .addColumn('rotated_from_hash', 'text')
+    .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
     .execute();
 
   await db.schema
@@ -101,6 +105,7 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     )
     .addColumn('code_hash', 'text', col => col.notNull())
     .addColumn('created_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
+    .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
     .addColumn('consumed_at', 'timestamptz')
     .addPrimaryKeyConstraint('auth_backup_codes_pkey', ['user_id', 'code_hash'])
     .execute();

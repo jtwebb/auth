@@ -7,7 +7,6 @@ export type AuthErrorCode =
   | 'conflict'
   | 'not_found'
   | 'internal_error'
-  // Future-facing auth-specific codes (we'll implement in later milestones)
   | 'password_invalid'
   | 'passkey_invalid'
   | 'challenge_invalid'

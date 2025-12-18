@@ -79,7 +79,7 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         const id = randomUUID();
         await options.db
           .insertInto(tables.users)
-          .values({ id, identifier, created_at: now() })
+          .values({ id, identifier, createdAt: now() })
           .execute();
         return asUserId(id);
       }
@@ -89,33 +89,33 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async getForUser(userId: UserId) {
         const r = await options.db
           .selectFrom(tables.passwordCredentials)
-          .select(['user_id', 'password_hash', 'created_at', 'updated_at'])
-          .where('user_id', '=', userId as unknown as string)
+          .select(['userId', 'passwordHash', 'createdAt', 'updatedAt'])
+          .where('userId', '=', userId as unknown as string)
           .executeTakeFirst();
         if (!r) return null;
         const out: PasswordCredentialRecord = {
-          userId: asUserId(toString(getField(r, 'user_id'))),
-          passwordHash: toString(getField(r, 'password_hash')),
-          createdAt: toDate(getField(r, 'created_at')),
-          updatedAt: toOptionalDate(getField(r, 'updated_at'))
+          userId: asUserId(toString(getField(r, 'userId'))),
+          passwordHash: toString(getField(r, 'passwordHash')),
+          createdAt: toDate(getField(r, 'createdAt')),
+          updatedAt: toOptionalDate(getField(r, 'updatedAt'))
         };
         return out;
       },
 
       async upsertForUser(record: PasswordCredentialRecord) {
-        // Postgres: ON CONFLICT (user_id) DO UPDATE ...
+        // Postgres: ON CONFLICT (userId) DO UPDATE ...
         await options.db
           .insertInto(tables.passwordCredentials)
           .values({
-            user_id: record.userId as unknown as string,
-            password_hash: record.passwordHash,
-            created_at: record.createdAt,
-            updated_at: record.updatedAt ?? null
+            userId: record.userId as unknown as string,
+            passwordHash: record.passwordHash,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt ?? null
           })
           .onConflict(oc =>
-            oc.column('user_id').doUpdateSet({
-              password_hash: record.passwordHash,
-              updated_at: record.updatedAt ?? null
+            oc.column('userId').doUpdateSet({
+              passwordHash: record.passwordHash,
+              updatedAt: record.updatedAt ?? null
             })
           )
           .execute();
@@ -129,9 +129,9 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .values({
             id: ch.id as unknown as string,
             type: ch.type,
-            user_id: (ch.userId ?? null) as unknown as string | null,
+            userId: (ch.userId ?? null) as unknown as string | null,
             challenge: ch.challenge,
-            expires_at: ch.expiresAt
+            expiresAt: ch.expiresAt
           })
           .execute();
       },
@@ -140,18 +140,18 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         const r = await options.db
           .deleteFrom(tables.challenges)
           .where('id', '=', id as unknown as string)
-          .returning(['id', 'type', 'user_id', 'challenge', 'expires_at'])
+          .returning(['id', 'type', 'userId', 'challenge', 'expiresAt'])
           .executeTakeFirst();
         if (!r) return null;
         const out: StoredChallenge = {
           id: asChallengeId(toString(getField(r, 'id'))),
           type: toString(getField(r, 'type')) as StoredChallenge['type'],
           userId: (() => {
-            const uid = toOptionalString(getField(r, 'user_id'));
+            const uid = toOptionalString(getField(r, 'userId'));
             return uid ? asUserId(uid) : undefined;
           })(),
           challenge: toString(getField(r, 'challenge')),
-          expiresAt: toDate(getField(r, 'expires_at'))
+          expiresAt: toDate(getField(r, 'expiresAt'))
         };
         return out;
       }
@@ -161,30 +161,30 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async getEnabled(userId: UserId) {
         const r = await options.db
           .selectFrom(tables.totp)
-          .select(['encrypted_secret', 'enabled_at', 'last_used_at'])
-          .where('user_id', '=', userId as unknown as string)
-          .where('enabled_at', 'is not', null)
+          .select(['encryptedSecret', 'enabledAt', 'lastUsedAt'])
+          .where('userId', '=', userId as unknown as string)
+          .where('enabledAt', 'is not', null)
           .executeTakeFirst();
         if (!r) return null;
         return {
-          encryptedSecret: toString(getField(r, 'encrypted_secret')),
-          enabledAt: toDate(getField(r, 'enabled_at')),
-          lastUsedAt: toOptionalDate(getField(r, 'last_used_at'))
+          encryptedSecret: toString(getField(r, 'encryptedSecret')),
+          enabledAt: toDate(getField(r, 'enabledAt')),
+          lastUsedAt: toOptionalDate(getField(r, 'lastUsedAt'))
         };
       },
 
       async getPending(userId: UserId) {
         const r = await options.db
           .selectFrom(tables.totp)
-          .select(['encrypted_secret', 'pending_created_at'])
-          .where('user_id', '=', userId as unknown as string)
-          .where('enabled_at', 'is', null)
-          .where('pending_created_at', 'is not', null)
+          .select(['encryptedSecret', 'pendingCreatedAt'])
+          .where('userId', '=', userId as unknown as string)
+          .where('enabledAt', 'is', null)
+          .where('pendingCreatedAt', 'is not', null)
           .executeTakeFirst();
         if (!r) return null;
         return {
-          encryptedSecret: toString(getField(r, 'encrypted_secret')),
-          createdAt: toDate(getField(r, 'pending_created_at'))
+          encryptedSecret: toString(getField(r, 'encryptedSecret')),
+          createdAt: toDate(getField(r, 'pendingCreatedAt'))
         };
       },
 
@@ -192,17 +192,17 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         await options.db
           .insertInto(tables.totp)
           .values({
-            user_id: userId as unknown as string,
-            encrypted_secret: encryptedSecret,
-            enabled_at: null,
-            pending_created_at: createdAt,
-            last_used_at: null
+            userId: userId as unknown as string,
+            encryptedSecret: encryptedSecret,
+            enabledAt: null,
+            pendingCreatedAt: createdAt,
+            lastUsedAt: null
           })
           .onConflict(oc =>
-            oc.column('user_id').doUpdateSet({
-              encrypted_secret: encryptedSecret,
-              enabled_at: null,
-              pending_created_at: createdAt
+            oc.column('userId').doUpdateSet({
+              encryptedSecret: encryptedSecret,
+              enabledAt: null,
+              pendingCreatedAt: createdAt
             })
           )
           .execute();
@@ -211,10 +211,10 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async enableFromPending(userId: UserId, enabledAt: Date) {
         await options.db
           .updateTable(tables.totp)
-          .set({ enabled_at: enabledAt, pending_created_at: null })
-          .where('user_id', '=', userId as unknown as string)
-          .where('enabled_at', 'is', null)
-          .where('pending_created_at', 'is not', null)
+          .set({ enabledAt: enabledAt, pendingCreatedAt: null })
+          .where('userId', '=', userId as unknown as string)
+          .where('enabledAt', 'is', null)
+          .where('pendingCreatedAt', 'is not', null)
           .execute();
       },
 
@@ -222,15 +222,15 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         debug('totp.disable', { userId, disabledAt: disabledAt.toISOString() });
         await options.db
           .deleteFrom(tables.totp)
-          .where('user_id', '=', userId as unknown as string)
+          .where('userId', '=', userId as unknown as string)
           .execute();
       },
 
       async updateLastUsedAt(userId: UserId, lastUsedAt: Date) {
         await options.db
           .updateTable(tables.totp)
-          .set({ last_used_at: lastUsedAt })
-          .where('user_id', '=', userId as unknown as string)
+          .set({ lastUsedAt: lastUsedAt })
+          .where('userId', '=', userId as unknown as string)
           .execute();
       }
     },
@@ -240,13 +240,13 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         await options.db
           .insertInto(tables.sessions)
           .values({
-            token_hash: s.tokenHash as unknown as string,
-            user_id: s.userId as unknown as string,
-            created_at: s.createdAt,
-            last_seen_at: s.lastSeenAt ?? null,
-            expires_at: s.expiresAt,
-            revoked_at: s.revokedAt ?? null,
-            rotated_from_hash: (s.rotatedFromHash ?? null) as unknown as string | null
+            tokenHash: s.tokenHash as unknown as string,
+            userId: s.userId as unknown as string,
+            createdAt: s.createdAt,
+            lastSeenAt: s.lastSeenAt ?? null,
+            expiresAt: s.expiresAt,
+            revokedAt: s.revokedAt ?? null,
+            rotatedFromHash: (s.rotatedFromHash ?? null) as unknown as string | null
           })
           .execute();
       },
@@ -255,26 +255,26 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         const r = await options.db
           .selectFrom(tables.sessions)
           .select([
-            'token_hash',
-            'user_id',
-            'created_at',
-            'last_seen_at',
-            'expires_at',
-            'revoked_at',
-            'rotated_from_hash'
+            'tokenHash',
+            'userId',
+            'createdAt',
+            'lastSeenAt',
+            'expiresAt',
+            'revokedAt',
+            'rotatedFromHash'
           ])
-          .where('token_hash', '=', tokenHash as unknown as string)
+          .where('tokenHash', '=', tokenHash as unknown as string)
           .executeTakeFirst();
         if (!r) return null;
         const out: SessionRecord = {
-          tokenHash: asSessionTokenHash(toString(getField(r, 'token_hash'))),
-          userId: asUserId(toString(getField(r, 'user_id'))),
-          createdAt: toDate(getField(r, 'created_at')),
-          lastSeenAt: toOptionalDate(getField(r, 'last_seen_at')),
-          expiresAt: toDate(getField(r, 'expires_at')),
-          revokedAt: toOptionalDate(getField(r, 'revoked_at')),
+          tokenHash: asSessionTokenHash(toString(getField(r, 'tokenHash'))),
+          userId: asUserId(toString(getField(r, 'userId'))),
+          createdAt: toDate(getField(r, 'createdAt')),
+          lastSeenAt: toOptionalDate(getField(r, 'lastSeenAt')),
+          expiresAt: toDate(getField(r, 'expiresAt')),
+          revokedAt: toOptionalDate(getField(r, 'revokedAt')),
           rotatedFromHash: (() => {
-            const rot = toOptionalString(getField(r, 'rotated_from_hash'));
+            const rot = toOptionalString(getField(r, 'rotatedFromHash'));
             return rot ? asSessionTokenHash(rot) : undefined;
           })()
         };
@@ -284,25 +284,25 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async touchSession(tokenHash: SessionTokenHash, lastSeenAt: Date) {
         await options.db
           .updateTable(tables.sessions)
-          .set({ last_seen_at: lastSeenAt })
-          .where('token_hash', '=', tokenHash as unknown as string)
-          .where('revoked_at', 'is', null)
+          .set({ lastSeenAt })
+          .where('tokenHash', '=', tokenHash as unknown as string)
+          .where('revokedAt', 'is', null)
           .execute();
       },
 
       async revokeSession(tokenHash: SessionTokenHash, revokedAt: Date) {
         await options.db
           .updateTable(tables.sessions)
-          .set({ revoked_at: revokedAt })
-          .where('token_hash', '=', tokenHash as unknown as string)
+          .set({ revokedAt })
+          .where('tokenHash', '=', tokenHash as unknown as string)
           .execute();
       },
 
       async revokeAllUserSessions(userId: UserId, revokedAt: Date) {
         await options.db
           .updateTable(tables.sessions)
-          .set({ revoked_at: revokedAt })
-          .where('user_id', '=', userId as unknown as string)
+          .set({ revokedAt })
+          .where('userId', '=', userId as unknown as string)
           .execute();
       },
 
@@ -315,19 +315,19 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           await tx
             .insertInto(tables.sessions)
             .values({
-              token_hash: newSession.tokenHash as unknown as string,
-              user_id: newSession.userId as unknown as string,
-              created_at: newSession.createdAt,
-              last_seen_at: newSession.lastSeenAt ?? null,
-              expires_at: newSession.expiresAt,
-              revoked_at: null,
-              rotated_from_hash: (newSession.rotatedFromHash ?? null) as unknown as string | null
+              tokenHash: newSession.tokenHash as unknown as string,
+              userId: newSession.userId as unknown as string,
+              createdAt: newSession.createdAt,
+              lastSeenAt: newSession.lastSeenAt ?? null,
+              expiresAt: newSession.expiresAt,
+              revokedAt: null,
+              rotatedFromHash: (newSession.rotatedFromHash ?? null) as unknown as string | null
             })
             .execute();
           await tx
             .updateTable(tables.sessions)
-            .set({ revoked_at: revokedAt })
-            .where('token_hash', '=', oldTokenHash as unknown as string)
+            .set({ revokedAt })
+            .where('tokenHash', '=', oldTokenHash as unknown as string)
             .execute();
         });
       }
@@ -343,16 +343,16 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         await withTx(async tx => {
           await tx
             .deleteFrom(tables.backupCodes)
-            .where('user_id', '=', userId as unknown as string)
+            .where('userId', '=', userId as unknown as string)
             .execute();
           for (const c of codes) {
             await tx
               .insertInto(tables.backupCodes)
               .values({
-                user_id: c.userId as unknown as string,
-                code_hash: c.codeHash,
-                created_at: c.createdAt,
-                consumed_at: null
+                userId: c.userId as unknown as string,
+                codeHash: c.codeHash,
+                createdAt: c.createdAt,
+                consumedAt: null
               })
               .execute();
           }
@@ -362,11 +362,11 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async consumeCode(userId: UserId, codeHash: string, consumedAt: Date) {
         const r = await options.db
           .updateTable(tables.backupCodes)
-          .set({ consumed_at: consumedAt })
-          .where('user_id', '=', userId as unknown as string)
-          .where('code_hash', '=', codeHash)
-          .where('consumed_at', 'is', null)
-          .returning(['user_id'])
+          .set({ consumedAt })
+          .where('userId', '=', userId as unknown as string)
+          .where('codeHash', '=', codeHash)
+          .where('consumedAt', 'is', null)
+          .returning(['userId'])
           .executeTakeFirst();
         return Boolean(r);
       },
@@ -375,8 +375,8 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         const r = await options.db
           .selectFrom(tables.backupCodes)
           .select(sql<number>`count(*)`.as('n'))
-          .where('user_id', '=', userId as unknown as string)
-          .where('consumed_at', 'is', null)
+          .where('userId', '=', userId as unknown as string)
+          .where('consumedAt', 'is', null)
           .executeTakeFirst();
         const n = getField(r, 'n');
         return Number(n ?? 0);
@@ -389,33 +389,33 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .selectFrom(tables.webauthnCredentials)
           .select([
             'id',
-            'user_id',
-            'credential_id',
-            'public_key',
+            'userId',
+            'credentialId',
+            'publicKey',
             'counter',
             'transports',
-            'credential_device_type',
-            'credential_backed_up',
-            'created_at',
-            'updated_at'
+            'credentialDeviceType',
+            'credentialBackedUp',
+            'createdAt',
+            'updatedAt'
           ])
-          .where('user_id', '=', userId as unknown as string)
+          .where('userId', '=', userId as unknown as string)
           .execute();
         return rows.map(
           (r: unknown): WebAuthnCredentialRecord => ({
             id: asWebAuthnCredentialId(toString(getField(r, 'id'))),
-            userId: asUserId(toString(getField(r, 'user_id'))),
-            credentialId: toString(getField(r, 'credential_id')),
-            publicKey: toUint8Array(getField(r, 'public_key')),
+            userId: asUserId(toString(getField(r, 'userId'))),
+            credentialId: toString(getField(r, 'credentialId')),
+            publicKey: toUint8Array(getField(r, 'publicKey')),
             counter: Number(getField(r, 'counter')),
             transports: (toOptionalStringArray(getField(r, 'transports')) ?? undefined) as
               | AuthenticatorTransportFuture[]
               | undefined,
-            credentialDeviceType: (toOptionalString(getField(r, 'credential_device_type')) ??
+            credentialDeviceType: (toOptionalString(getField(r, 'credentialDeviceType')) ??
               undefined) as CredentialDeviceType | undefined,
-            credentialBackedUp: toOptionalBoolean(getField(r, 'credential_backed_up')),
-            createdAt: toDate(getField(r, 'created_at')),
-            updatedAt: toOptionalDate(getField(r, 'updated_at'))
+            credentialBackedUp: toOptionalBoolean(getField(r, 'credentialBackedUp')),
+            createdAt: toDate(getField(r, 'createdAt')),
+            updatedAt: toOptionalDate(getField(r, 'updatedAt'))
           })
         );
       },
@@ -425,33 +425,33 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .selectFrom(tables.webauthnCredentials)
           .select([
             'id',
-            'user_id',
-            'credential_id',
-            'public_key',
+            'userId',
+            'credentialId',
+            'publicKey',
             'counter',
             'transports',
-            'credential_device_type',
-            'credential_backed_up',
-            'created_at',
-            'updated_at'
+            'credentialDeviceType',
+            'credentialBackedUp',
+            'createdAt',
+            'updatedAt'
           ])
           .where('id', '=', id as unknown as string)
           .executeTakeFirst();
         if (!r) return null;
         const out: WebAuthnCredentialRecord = {
           id: asWebAuthnCredentialId(toString(getField(r, 'id'))),
-          userId: asUserId(toString(getField(r, 'user_id'))),
-          credentialId: toString(getField(r, 'credential_id')),
-          publicKey: toUint8Array(getField(r, 'public_key')),
+          userId: asUserId(toString(getField(r, 'userId'))),
+          credentialId: toString(getField(r, 'credentialId')),
+          publicKey: toUint8Array(getField(r, 'publicKey')),
           counter: Number(getField(r, 'counter')),
           transports: (toOptionalStringArray(getField(r, 'transports')) ?? undefined) as
             | AuthenticatorTransportFuture[]
             | undefined,
-          credentialDeviceType: (toOptionalString(getField(r, 'credential_device_type')) ??
+          credentialDeviceType: (toOptionalString(getField(r, 'credentialDeviceType')) ??
             undefined) as CredentialDeviceType | undefined,
-          credentialBackedUp: toOptionalBoolean(getField(r, 'credential_backed_up')),
-          createdAt: toDate(getField(r, 'created_at')),
-          updatedAt: toOptionalDate(getField(r, 'updated_at'))
+          credentialBackedUp: toOptionalBoolean(getField(r, 'credentialBackedUp')),
+          createdAt: toDate(getField(r, 'createdAt')),
+          updatedAt: toOptionalDate(getField(r, 'updatedAt'))
         };
         return out;
       },
@@ -461,17 +461,15 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .insertInto(tables.webauthnCredentials)
           .values({
             id: record.id as unknown as string,
-            user_id: record.userId as unknown as string,
-            credential_id: record.credentialId,
-            public_key: Buffer.from(record.publicKey),
+            userId: record.userId as unknown as string,
+            credentialId: record.credentialId,
+            publicKey: Buffer.from(record.publicKey),
             counter: record.counter,
             transports: (record.transports ?? null) as unknown as string[] | null,
-            credential_device_type: (record.credentialDeviceType ?? null) as unknown as
-              | string
-              | null,
-            credential_backed_up: record.credentialBackedUp ?? null,
-            created_at: record.createdAt,
-            updated_at: record.updatedAt ?? null
+            credentialDeviceType: (record.credentialDeviceType ?? null) as unknown as string | null,
+            credentialBackedUp: record.credentialBackedUp ?? null,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt ?? null
           })
           .execute();
       },
@@ -479,7 +477,7 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async updateCredentialCounter(id: WebAuthnCredentialId, counter: number, updatedAt: Date) {
         await options.db
           .updateTable(tables.webauthnCredentials)
-          .set({ counter, updated_at: updatedAt })
+          .set({ counter, updatedAt: updatedAt })
           .where('id', '=', id as unknown as string)
           .execute();
       }
@@ -551,13 +549,13 @@ function asWebAuthnCredentialId(v: string): WebAuthnCredentialId {
 function resolveTables(options: CreateKyselyAuthStorageOptions): KyselyAuthTables {
   const prefix = options.tablePrefix ?? '';
   const defaults: KyselyAuthTables = {
-    users: `${prefix}auth_users`,
-    passwordCredentials: `${prefix}auth_password_credentials`,
-    webauthnCredentials: `${prefix}auth_webauthn_credentials`,
-    challenges: `${prefix}auth_challenges`,
-    sessions: `${prefix}auth_sessions`,
-    backupCodes: `${prefix}auth_backup_codes`,
-    totp: `${prefix}auth_totp`
+    users: `${prefix}authUsers`,
+    passwordCredentials: `${prefix}authPasswordCredentials`,
+    webauthnCredentials: `${prefix}authWebauthnCredentials`,
+    challenges: `${prefix}authChallenges`,
+    sessions: `${prefix}authSessions`,
+    backupCodes: `${prefix}authBackupCodes`,
+    totp: `${prefix}authTotp`
   };
   return { ...defaults, ...(options.tables ?? {}) };
 }
