@@ -1,10 +1,5 @@
-import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import type { Options as Argon2Options } from '@node-rs/argon2';
+import argon2 from 'argon2';
 import { AuthError } from '../auth-error.js';
-
-// Avoid importing @node-rs/argon2's ambient `const enum` (TS restriction with verbatimModuleSyntax).
-// Per their d.ts: Argon2id = 2.
-const ARGON2ID = 2;
 
 export type Argon2Params = {
   /**
@@ -22,16 +17,14 @@ export type Argon2Params = {
   /**
    * Output hash length in bytes.
    */
-  outputLen: number;
+  hashLength: number;
 };
 
 export const defaultArgon2Params: Argon2Params = {
-  // Tuned to be reasonably strong while staying practical for dev/test.
-  // Apps can raise these based on their latency/memory budget.
-  memoryCost: 19456, // ~19 MiB
-  timeCost: 2,
-  parallelism: 1,
-  outputLen: 32
+  memoryCost: 65536,
+  timeCost: 3,
+  parallelism: 4,
+  hashLength: 32
 };
 
 export type HashPasswordOptions = {
@@ -62,15 +55,13 @@ export async function hashPassword(
   const params = normalizeParams(options.params);
   const secret = pepperToSecret(options.pepper);
 
-  return await argon2Hash(password, {
-    // The library expects `algorithm?: Algorithm` where Algorithm.Argon2id = 2.
-    // We pass the numeric value to avoid depending on the ambient const enum at compile time.
-    algorithm: ARGON2ID as unknown as Argon2Options['algorithm'],
+  return await argon2.hash(password, {
+    type: argon2.argon2id,
     memoryCost: params.memoryCost,
     timeCost: params.timeCost,
     parallelism: params.parallelism,
-    outputLen: params.outputLen,
-    secret
+    hashLength: params.hashLength,
+    secret: Buffer.from(secret ?? '')
   });
 }
 
@@ -83,12 +74,12 @@ export async function verifyPassword(
     throw new AuthError('invalid_input', 'password must be a string');
   }
   const parsed = parseEncodedHash(encodedHash);
-  if (parsed.kind !== 'argon2id') {
+  if (parsed.type !== 'argon2id') {
     throw new AuthError('invalid_input', 'unsupported password hash format');
   }
 
   const secret = pepperToSecret(options.pepper);
-  const ok = await argon2Verify(encodedHash, password, { secret });
+  const ok = await argon2.verify(encodedHash, password, { secret: Buffer.from(secret ?? '') });
   const desired = normalizeParams(options.desiredParams);
   const needsRehash = ok && isWeaker(parsed.params, desired);
 
@@ -97,23 +88,23 @@ export async function verifyPassword(
 
 export function parseEncodedHash(
   encodedHash: string
-): { kind: 'argon2id'; params: Argon2Params } | { kind: 'unknown' } {
-  if (typeof encodedHash !== 'string') return { kind: 'unknown' };
-  if (!encodedHash.startsWith('$argon2id$')) return { kind: 'unknown' };
+): { type: 'argon2id'; params: Argon2Params } | { type: 'unknown' } {
+  if (typeof encodedHash !== 'string') return { type: 'unknown' };
+  if (!encodedHash.startsWith('$argon2id$')) return { type: 'unknown' };
 
   // PHC: $argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>
   const parts = encodedHash.split('$');
   // ["", "argon2id", "v=19", "m=...,t=...,p=...", salt, hash]
-  if (parts.length !== 6 && parts.length !== 5) return { kind: 'unknown' };
+  if (parts.length !== 6 && parts.length !== 5) return { type: 'unknown' };
   const paramsPart = parts.length === 6 ? parts[3] : parts[2];
-  if (!paramsPart) return { kind: 'unknown' };
+  if (!paramsPart) return { type: 'unknown' };
 
   const parsed = parseArgon2ParamPart(paramsPart);
-  if (!parsed) return { kind: 'unknown' };
+  if (!parsed) return { type: 'unknown' };
 
   // outputLen isn't in the param string; keep our current desired default for comparisons.
-  const params: Argon2Params = { ...parsed, outputLen: defaultArgon2Params.outputLen };
-  return { kind: 'argon2id', params };
+  const params: Argon2Params = { ...parsed, hashLength: defaultArgon2Params.hashLength };
+  return { type: 'argon2id', params };
 }
 
 function normalizeParams(override?: Partial<Argon2Params>): Argon2Params {
@@ -127,7 +118,7 @@ function normalizeParams(override?: Partial<Argon2Params>): Argon2Params {
   if (!isFiniteInt(merged.parallelism) || merged.parallelism < 1 || merged.parallelism > 255) {
     throw new AuthError('invalid_input', 'invalid argon2 parallelism parameter');
   }
-  if (!isFiniteInt(merged.outputLen) || merged.outputLen < 16 || merged.outputLen > 64) {
+  if (!isFiniteInt(merged.hashLength) || merged.hashLength < 16 || merged.hashLength > 64) {
     throw new AuthError('invalid_input', 'invalid argon2 outputLen parameter');
   }
   return merged;

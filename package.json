@@ -1,6 +1,6 @@
 {
   "name": "@jtwebb/auth",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Authentication library for web applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -77,8 +77,8 @@
     "vitest": "^4.0.16"
   },
   "dependencies": {
-    "@node-rs/argon2": "^2.0.2",
     "@simplewebauthn/browser": "^13.2.2",
-    "@simplewebauthn/server": "^13.2.2"
+    "@simplewebauthn/server": "^13.2.2",
+    "argon2": "^0.44.0"
   }
 }

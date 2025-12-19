@@ -29,8 +29,8 @@ describe('core/password/password-hash', () => {
   it('parses encoded hash', async () => {
     const encoded = await hashPassword('pw');
     const parsed = parseEncodedHash(encoded);
-    expect(parsed.kind).toBe('argon2id');
-    if (parsed.kind === 'argon2id') {
+    expect(parsed.type).toBe('argon2id');
+    if (parsed.type === 'argon2id') {
       expect(parsed.params.memoryCost).toBeGreaterThan(0);
     }
   });
