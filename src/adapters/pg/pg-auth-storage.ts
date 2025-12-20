@@ -236,8 +236,8 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
       async createSession(s: SessionRecord) {
         await options.pool.query(
           `INSERT INTO ${tables.sessions}
-           (token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+           (token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash, client_id_hash, user_agent_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             s.tokenHash,
             s.userId,
@@ -245,7 +245,9 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
             s.lastSeenAt ?? null,
             s.expiresAt,
             s.revokedAt ?? null,
-            s.rotatedFromHash ?? null
+            s.rotatedFromHash ?? null,
+            s.clientIdHash ?? null,
+            s.userAgentHash ?? null
           ]
         );
       },
@@ -259,8 +261,10 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
           expires_at: Date | string;
           revoked_at: Date | string | null;
           rotated_from_hash: string | null;
+          client_id_hash: string | null;
+          user_agent_hash: string | null;
         }>(
-          `SELECT token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash
+          `SELECT token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash, client_id_hash, user_agent_hash
            FROM ${tables.sessions}
            WHERE token_hash = $1`,
           [tokenHash]
@@ -274,9 +278,48 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
           lastSeenAt: toOptionalDate(r.last_seen_at),
           expiresAt: toDate(r.expires_at),
           revokedAt: toOptionalDate(r.revoked_at),
-          rotatedFromHash: r.rotated_from_hash ? asSessionTokenHash(r.rotated_from_hash) : undefined
+          rotatedFromHash: r.rotated_from_hash
+            ? asSessionTokenHash(r.rotated_from_hash)
+            : undefined,
+          clientIdHash: r.client_id_hash ?? undefined,
+          userAgentHash: r.user_agent_hash ?? undefined
         };
         return out;
+      },
+
+      async listSessionsForUser(userId: UserId) {
+        const res = await options.pool.query<{
+          token_hash: string;
+          user_id: string;
+          created_at: Date | string;
+          last_seen_at: Date | string | null;
+          expires_at: Date | string;
+          revoked_at: Date | string | null;
+          rotated_from_hash: string | null;
+          client_id_hash: string | null;
+          user_agent_hash: string | null;
+        }>(
+          `SELECT token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash, client_id_hash, user_agent_hash
+           FROM ${tables.sessions}
+           WHERE user_id = $1
+           ORDER BY created_at DESC`,
+          [userId]
+        );
+        return res.rows.map(
+          (r): SessionRecord => ({
+            tokenHash: asSessionTokenHash(r.token_hash),
+            userId: asUserId(r.user_id),
+            createdAt: toDate(r.created_at),
+            lastSeenAt: toOptionalDate(r.last_seen_at),
+            expiresAt: toDate(r.expires_at),
+            revokedAt: toOptionalDate(r.revoked_at),
+            rotatedFromHash: r.rotated_from_hash
+              ? asSessionTokenHash(r.rotated_from_hash)
+              : undefined,
+            clientIdHash: r.client_id_hash ?? undefined,
+            userAgentHash: r.user_agent_hash ?? undefined
+          })
+        );
       },
 
       async touchSession(tokenHash: SessionTokenHash, lastSeenAt: Date) {
@@ -300,6 +343,19 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
         );
       },
 
+      async revokeAllUserSessionsExceptTokenHash(
+        userId: UserId,
+        exceptTokenHash: SessionTokenHash,
+        revokedAt: Date
+      ) {
+        await options.pool.query(
+          `UPDATE ${tables.sessions}
+           SET revoked_at = $3
+           WHERE user_id = $1 AND token_hash <> $2 AND revoked_at IS NULL`,
+          [userId, exceptTokenHash, revokedAt]
+        );
+      },
+
       async rotateSession(
         oldTokenHash: SessionTokenHash,
         newSession: SessionRecord,
@@ -308,15 +364,17 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
         await withTx(options.pool, async tx => {
           await tx.query(
             `INSERT INTO ${tables.sessions}
-             (token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash)
-             VALUES ($1, $2, $3, $4, $5, NULL, $6)`,
+             (token_hash, user_id, created_at, last_seen_at, expires_at, revoked_at, rotated_from_hash, client_id_hash, user_agent_hash)
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8)`,
             [
               newSession.tokenHash,
               newSession.userId,
               newSession.createdAt,
               newSession.lastSeenAt ?? null,
               newSession.expiresAt,
-              newSession.rotatedFromHash ?? null
+              newSession.rotatedFromHash ?? null,
+              newSession.clientIdHash ?? null,
+              newSession.userAgentHash ?? null
             ]
           );
           await tx.query(`UPDATE ${tables.sessions} SET revoked_at = $2 WHERE token_hash = $1`, [

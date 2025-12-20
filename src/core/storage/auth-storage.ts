@@ -25,6 +25,11 @@ export type SessionRecord = {
   expiresAt: Date;
   revokedAt?: Date;
   rotatedFromHash?: SessionTokenHash;
+  /**
+   * Optional session binding/device metadata (store only a hash; never store raw IP/UA if you can avoid it).
+   */
+  clientIdHash?: string;
+  userAgentHash?: string;
 };
 
 export type WebAuthnCredentialRecord = {
@@ -142,12 +147,24 @@ export type AuthStorage = {
     createSession(session: SessionRecord): Promise<void>;
     getSessionByTokenHash(tokenHash: SessionTokenHash): Promise<SessionRecord | null>;
     /**
+     * List sessions for a user (for session management UI). Optional but recommended.
+     */
+    listSessionsForUser?: (userId: UserId) => Promise<SessionRecord[]>;
+    /**
      * Update lastSeenAt (sliding session) without rotating the token.
      * Should be a no-op if the session doesn't exist or is revoked/expired (implementation-defined).
      */
     touchSession(tokenHash: SessionTokenHash, lastSeenAt: Date): Promise<void>;
     revokeSession(tokenHash: SessionTokenHash, revokedAt: Date): Promise<void>;
     revokeAllUserSessions(userId: UserId, revokedAt: Date): Promise<void>;
+    /**
+     * Revoke all sessions for a user except one (for "log out other devices"). Optional but recommended.
+     */
+    revokeAllUserSessionsExceptTokenHash?: (
+      userId: UserId,
+      exceptTokenHash: SessionTokenHash,
+      revokedAt: Date
+    ) => Promise<void>;
     /**
      * Rotate a session token atomically: insert new, revoke old.
      */

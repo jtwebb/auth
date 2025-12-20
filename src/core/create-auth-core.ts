@@ -14,7 +14,7 @@ import type {
 } from './auth-types.js';
 import { loginWithPassword, registerWithPassword } from './password/password-auth.js';
 import type { Argon2Params } from './password/password-hash.js';
-import type { AuthStorage } from './storage/auth-storage.js';
+import type { AuthStorage, SessionRecord } from './storage/auth-storage.js';
 import type {
   PasskeyLoginFinishInput,
   PasskeyLoginFinishResult,
@@ -116,6 +116,11 @@ export type CreateAuthCoreOptions = {
    */
   sessionTokenHashSecret?: Uint8Array | string;
   /**
+   * Optional secret used to hash session binding context values (clientId/userAgent).
+   * If omitted, we fall back to sessionTokenHashSecret when present, otherwise SHA-256.
+   */
+  sessionContextHashSecret?: Uint8Array | string;
+  /**
    * Optional secret used to HMAC backup codes before storing.
    * Strongly recommended to mitigate offline guessing if DB is leaked.
    */
@@ -148,6 +153,12 @@ export type AuthCore = {
   validateSession(input: ValidateSessionInput): Promise<ValidateSessionResult>;
   revokeSession(input: RevokeSessionInput): Promise<RevokeSessionResult>;
   revokeAllUserSessions(userId: UserId): Promise<void>;
+  /**
+   * Session management helpers (optional storage support required).
+   */
+  listSessions(userId: UserId): Promise<SessionRecord[]>;
+  revokeSessionById(input: { sessionId: SessionTokenHash }): Promise<void>;
+  revokeOtherSessions(input: { userId: UserId; currentSessionToken: SessionToken }): Promise<void>;
   startTotpEnrollment(input: StartTotpEnrollmentInput): Promise<StartTotpEnrollmentResult>;
   finishTotpEnrollment(input: FinishTotpEnrollmentInput): Promise<FinishTotpEnrollmentResult>;
   verifyTotp(input: VerifyTotpInput): Promise<VerifyTotpResult>;
@@ -182,6 +193,16 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     return digestHex as SessionTokenHash;
   };
 
+  const hashSessionContextValue = (value: string): string => {
+    const v = String(value ?? '');
+    const secret = options.sessionContextHashSecret ?? options.sessionTokenHashSecret;
+    const digestHex =
+      secret !== undefined
+        ? createHmac('sha256', secret).update(v).digest('hex')
+        : createHash('sha256').update(v).digest('hex');
+    return digestHex;
+  };
+
   const createSessionToken = (): CreateSessionTokenResult => {
     const now = clock.now();
     if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
@@ -209,6 +230,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         policy,
         now: () => clock.now(),
         createSessionToken,
+        hashSessionContextValue,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
         onAuthAttempt: options.onAuthAttempt
@@ -221,6 +243,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         now: () => clock.now(),
         createSessionToken,
         randomBytes,
+        hashSessionContextValue,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
         onAuthAttempt: options.onAuthAttempt
@@ -257,7 +280,8 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
             policy,
             now: () => clock.now(),
             createSessionToken,
-            randomBytes
+            randomBytes,
+            hashSessionContextValue
           });
           await safeAttemptHook(options.onAuthAttempt, {
             type: 'passkey_login_finish',
@@ -297,6 +321,7 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         policy,
         now: () => clock.now(),
         hashSessionToken,
+        hashSessionContextValue,
         createSessionToken
       }),
     revokeSession: async input =>
@@ -312,6 +337,25 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         storage: options.storage,
         now: () => clock.now()
       }),
+    listSessions: async userId => {
+      const fn = options.storage.sessions.listSessionsForUser;
+      if (!fn)
+        throw new AuthError('not_implemented', 'sessions.listSessionsForUser not implemented');
+      return await fn(userId);
+    },
+    revokeSessionById: async input => {
+      await options.storage.sessions.revokeSession(input.sessionId, clock.now());
+    },
+    revokeOtherSessions: async input => {
+      const fn = options.storage.sessions.revokeAllUserSessionsExceptTokenHash;
+      if (!fn)
+        throw new AuthError(
+          'not_implemented',
+          'sessions.revokeAllUserSessionsExceptTokenHash not implemented'
+        );
+      const currentHash = hashSessionToken(input.currentSessionToken);
+      await fn(input.userId, currentHash, clock.now());
+    },
     startTotpEnrollment: async input => {
       if (!options.totpEncryptionKey)
         throw new AuthError('invalid_input', 'totpEncryptionKey is required');
@@ -345,7 +389,8 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
           policy,
           now: () => clock.now(),
           totpEncryptionKey: options.totpEncryptionKey,
-          createSessionToken
+          createSessionToken,
+          hashSessionContextValue
         });
         await safeAttemptHook(options.onAuthAttempt, {
           type: 'totp_verify',

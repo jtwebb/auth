@@ -81,6 +81,8 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .addColumn('expires_at', 'timestamptz', col => col.notNull())
     .addColumn('revoked_at', 'timestamptz')
     .addColumn('rotated_from_hash', 'text')
+    .addColumn('client_id_hash', 'text')
+    .addColumn('user_agent_hash', 'text')
     .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
     .execute();
 

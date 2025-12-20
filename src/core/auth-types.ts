@@ -11,12 +11,28 @@ export type CreateSessionTokenResult = {
   sessionTokenHash: SessionTokenHash;
 };
 
+export type SessionContextInput = {
+  /**
+   * Stable client identifier (e.g. IP or device id) as seen by your server.
+   * Prefer using a trusted value from your edge/proxy, not user-provided fields.
+   */
+  clientId?: string;
+  /**
+   * User-Agent header value.
+   */
+  userAgent?: string;
+};
+
 export type PasswordLoginInput = {
   /**
    * Identifier (email/username). Keep generic; adapters can normalize.
    */
   identifier: string;
   password: string;
+  /**
+   * Optional context used for session binding / device metadata.
+   */
+  sessionContext?: SessionContextInput;
 };
 
 export type PasswordLoginResult =
@@ -26,6 +42,10 @@ export type PasswordLoginResult =
 export type PasswordRegisterInput = {
   identifier: string;
   password: string;
+  /**
+   * Optional context used for session binding / device metadata.
+   */
+  sessionContext?: SessionContextInput;
 };
 
 export type PasswordRegisterResult = {

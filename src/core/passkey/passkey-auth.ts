@@ -171,6 +171,7 @@ export async function finishPasskeyLogin(ctx: {
   now: () => Date;
   createSessionToken: () => CreateSessionTokenResult;
   randomBytes: RandomBytesFn;
+  hashSessionContextValue: (value: string) => string;
 }): Promise<PasskeyLoginFinishResult> {
   const now = ctx.now();
   const stored = await ctx.storage.challenges.consumeChallenge(ctx.input.challengeId);
@@ -231,7 +232,13 @@ export async function finishPasskeyLogin(ctx: {
     userId: record.userId,
     createdAt: now,
     lastSeenAt: now,
-    expiresAt
+    expiresAt,
+    clientIdHash: ctx.input.sessionContext?.clientId
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.clientId)
+      : undefined,
+    userAgentHash: ctx.input.sessionContext?.userAgent
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.userAgent)
+      : undefined
   });
 
   return { userId: record.userId, session };

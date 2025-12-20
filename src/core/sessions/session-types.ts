@@ -1,7 +1,16 @@
-import type { CreateSessionTokenResult, SessionToken, UserId } from '../auth-types.js';
+import type {
+  CreateSessionTokenResult,
+  SessionContextInput,
+  SessionToken,
+  UserId
+} from '../auth-types.js';
 
 export type ValidateSessionInput = {
   sessionToken: SessionToken;
+  /**
+   * Optional context for session binding checks.
+   */
+  sessionContext?: SessionContextInput;
 };
 
 export type ValidateSessionResult =
@@ -15,7 +24,7 @@ export type ValidateSessionResult =
     }
   | {
       ok: false;
-      reason: 'missing' | 'revoked' | 'expired';
+      reason: 'missing' | 'revoked' | 'expired' | 'invalid';
     };
 
 export type RevokeSessionInput = {

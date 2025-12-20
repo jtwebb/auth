@@ -20,6 +20,7 @@ export async function validateSession(ctx: {
   policy: AuthPolicy;
   now: () => Date;
   hashSessionToken: (t: SessionToken) => SessionTokenHash;
+  hashSessionContextValue: (value: string) => string;
   createSessionToken: () => CreateSessionTokenResult;
 }): Promise<ValidateSessionResult> {
   const token = ctx.input.sessionToken as unknown as string;
@@ -40,6 +41,22 @@ export async function validateSession(ctx: {
       return { ok: false, reason: 'expired' };
   }
 
+  // Optional session binding checks (opt-in)
+  const bind = ctx.policy.session.bindTo;
+  if (bind && (bind.clientId || bind.userAgent)) {
+    const sc = ctx.input.sessionContext;
+    if (bind.clientId) {
+      if (!sc?.clientId || !session.clientIdHash) return { ok: false, reason: 'invalid' };
+      const got = ctx.hashSessionContextValue(sc.clientId);
+      if (got !== session.clientIdHash) return { ok: false, reason: 'invalid' };
+    }
+    if (bind.userAgent) {
+      if (!sc?.userAgent || !session.userAgentHash) return { ok: false, reason: 'invalid' };
+      const got = ctx.hashSessionContextValue(sc.userAgent);
+      if (got !== session.userAgentHash) return { ok: false, reason: 'invalid' };
+    }
+  }
+
   // Rotation decision
   const rotateEveryMs = ctx.policy.session.rotateEveryMs;
   const lastSeen = session.lastSeenAt ?? session.createdAt;
@@ -57,7 +74,9 @@ export async function validateSession(ctx: {
       createdAt: now,
       lastSeenAt: now,
       expiresAt,
-      rotatedFromHash: tokenHash
+      rotatedFromHash: tokenHash,
+      clientIdHash: session.clientIdHash,
+      userAgentHash: session.userAgentHash
     };
 
     await ctx.storage.sessions.rotateSession(tokenHash, newRecord, now);

@@ -122,6 +122,7 @@ export async function verifyTotp(ctx: {
   now: () => Date;
   totpEncryptionKey: TotpEncryptionKey;
   createSessionToken: () => CreateSessionTokenResult;
+  hashSessionContextValue: (value: string) => string;
 }): Promise<VerifyTotpResult> {
   const now = ctx.now();
   const pending = await ctx.storage.challenges.consumeChallenge(ctx.input.pendingToken);
@@ -181,7 +182,13 @@ export async function verifyTotp(ctx: {
     userId: pending.userId,
     createdAt: now,
     lastSeenAt: now,
-    expiresAt
+    expiresAt,
+    clientIdHash: ctx.input.sessionContext?.clientId
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.clientId)
+      : undefined,
+    userAgentHash: ctx.input.sessionContext?.userAgent
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.userAgent)
+      : undefined
   });
 
   return { userId: pending.userId, session };

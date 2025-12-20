@@ -722,6 +722,48 @@ const core = createAuthCore({
 rl.assertAllowed([`login:id:${identifier}`]);
 ```
 
+### Progressive delays + temporary lockouts (enabled by default in the React Router adapter)
+
+In addition to fixed-window rate limiting, the React Router adapter applies **progressive delays**
+and **temporary lockouts** after repeated failures (and **resets on success**). This helps against
+distributed attacks where simple per-IP limits may be bypassed.
+
+- **What it affects (defaults)**: password login, TOTP verify, and passkey finish.
+- **Response**: HTTP **429** with a `Retry-After` header when delayed/locked.
+
+To configure (or disable) it:
+
+```ts
+import { createReactRouterAuthAdapter } from '@jtwebb/auth/react-router';
+
+export const auth = createReactRouterAuthAdapter({
+  core,
+  sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+  rateLimit: {
+    // disable entirely:
+    // enabled: false,
+
+    progressiveDelay: {
+      // disable progressive delays but keep fixed-window rate limits:
+      // enabled: false,
+
+      // override defaults (example: password login per identifier)
+      rules: {
+        passwordLoginPerIdentifier: {
+          failureWindowMs: 15 * 60_000,
+          startAfterFailures: 3,
+          baseDelayMs: 1_000,
+          factor: 2,
+          maxDelayMs: 60_000,
+          lockoutAfterFailures: 10,
+          lockoutMs: 15 * 60_000
+        }
+      }
+    }
+  }
+});
+```
+
 Production guidance:
 
 - Use a shared store (Redis) with atomic increments (multi-instance safe)

@@ -19,6 +19,7 @@ export type PasswordAuthContext = {
   now: () => Date;
   createSessionToken: () => { sessionToken: any; sessionTokenHash: any };
   randomBytes: (size: number) => Uint8Array;
+  hashSessionContextValue: (value: string) => string;
   passwordPepper?: string | Uint8Array;
   passwordHashParams?: Partial<Argon2Params>;
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
@@ -30,6 +31,7 @@ export type PasswordRegisterContext = {
   policy: AuthPolicy;
   now: () => Date;
   createSessionToken: () => { sessionToken: any; sessionTokenHash: any };
+  hashSessionContextValue: (value: string) => string;
   passwordPepper?: string | Uint8Array;
   passwordHashParams?: Partial<Argon2Params>;
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
@@ -79,7 +81,13 @@ export async function registerWithPassword(
     userId: userId as any,
     createdAt: now,
     lastSeenAt: now,
-    expiresAt
+    expiresAt,
+    clientIdHash: ctx.input.sessionContext?.clientId
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.clientId)
+      : undefined,
+    userAgentHash: ctx.input.sessionContext?.userAgent
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.userAgent)
+      : undefined
   };
   await storage.sessions.createSession(sessionRecord);
 
@@ -182,7 +190,13 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
     userId,
     createdAt: now,
     lastSeenAt: now,
-    expiresAt
+    expiresAt,
+    clientIdHash: ctx.input.sessionContext?.clientId
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.clientId)
+      : undefined,
+    userAgentHash: ctx.input.sessionContext?.userAgent
+      ? ctx.hashSessionContextValue(ctx.input.sessionContext.userAgent)
+      : undefined
   });
 
   await safeAttemptHook(ctx.onAuthAttempt, {

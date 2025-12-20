@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   last_seen_at timestamptz NULL,
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz NULL,
-  rotated_from_hash text NULL
+  rotated_from_hash text NULL,
+  client_id_hash text NULL,
+  user_agent_hash text NULL
 );
 CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions(expires_at);

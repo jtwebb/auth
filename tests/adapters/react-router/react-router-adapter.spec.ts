@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createAuthCore } from '../../../src/core/create-auth-core.js';
 import type { AuthStorage, SessionRecord } from '../../../src/core/storage/auth-storage.js';
 import { createReactRouterAuthAdapter } from '../../../src/adapters/react-router/react-router-adapter.js';
+import { AuthError } from '../../../src/core/auth-error.js';
+import { InMemoryProgressiveDelay, InMemoryRateLimiter } from '../../../src/core/rate-limit.js';
 
 function makeMemoryStorage() {
   const sessions = new Map<string, SessionRecord>();
@@ -19,7 +21,9 @@ function makeMemoryStorage() {
       updateLastUsedAt: async () => undefined
     },
     sessions: {
-      createSession: async s => sessions.set(s.tokenHash as any, s),
+      createSession: async s => {
+        sessions.set(s.tokenHash as any, s);
+      },
       getSessionByTokenHash: async h => sessions.get(h as any) ?? null,
       touchSession: async (h, lastSeenAt) => {
         const s = sessions.get(h as any);
@@ -173,5 +177,127 @@ describe('adapters/react-router/react-router-adapter', () => {
 
     const res = await adapter.actions.totpEnrollmentStart(req);
     expect(res.headers.get('set-cookie')).toMatch(/sid=newtok/);
+  });
+
+  it('rate limits passwordLogin by identifier by default (429 + Retry-After)', async () => {
+    let nowMs = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });
+    let calls = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      loginPassword: async () => {
+        calls++;
+        throw new Error('should not be called after rate limit triggers');
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: {
+        limiter,
+        rules: { passwordLoginPerIdentifier: { windowMs: 60_000, max: 1 } },
+        getClientId: () => null
+      }
+    });
+
+    const mkReq = () =>
+      new Request('https://example.com/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ identifier: 'a@example.com', password: 'pw' })
+      });
+
+    // First attempt passes the limiter and calls core (which throws)
+    await expect(adapter.actions.passwordLogin(mkReq())).resolves.toMatchObject({ status: 500 });
+    expect(calls).toBe(1);
+
+    // Second attempt is blocked by rate limiter; should return 429 + Retry-After
+    const res2 = await adapter.actions.passwordLogin(mkReq());
+    expect(res2.status).toBe(429);
+    expect(res2.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('applies progressive delays/lockouts on failures and resets on success', async () => {
+    let nowMs = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });
+    const store = new InMemoryProgressiveDelay({ nowMs: () => nowMs });
+
+    let attempt = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      loginPassword: async () => {
+        attempt++;
+        if (attempt === 3) {
+          // success clears penalties
+          return { userId: 'u1', session: { sessionToken: 't', sessionTokenHash: 'h' } };
+        }
+        throw new AuthError('password_invalid', 'Invalid credentials', {
+          publicMessage: 'Invalid credentials',
+          status: 401
+        });
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: {
+        limiter,
+        // Disable fixed-window blocking so the test isolates progressive behavior.
+        rules: { passwordLoginPerIdentifier: { windowMs: 60_000, max: 1000 } },
+        getClientId: () => null,
+        progressiveDelay: {
+          store,
+          rules: {
+            passwordLoginPerIdentifier: {
+              failureWindowMs: 60_000,
+              startAfterFailures: 1,
+              baseDelayMs: 10_000,
+              factor: 1,
+              maxDelayMs: 10_000,
+              lockoutAfterFailures: 2,
+              lockoutMs: 60_000
+            }
+          }
+        }
+      }
+    });
+
+    const mkReq = () =>
+      new Request('https://example.com/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ identifier: 'a@example.com', password: 'pw' })
+      });
+
+    // 1st failure: returns 401, but now future attempts are delayed
+    const r1 = await adapter.actions.passwordLogin(mkReq());
+    expect(r1.status).toBe(401);
+
+    // Immediately retry: blocked (429)
+    const r2 = await adapter.actions.passwordLogin(mkReq());
+    expect(r2.status).toBe(429);
+    expect(r2.headers.get('retry-after')).toBeTruthy();
+
+    // Advance time beyond delay to allow another real attempt (2nd failure triggers lockout)
+    nowMs += 10_000;
+    const r3 = await adapter.actions.passwordLogin(mkReq());
+    expect(r3.status).toBe(401);
+
+    // Immediately retry: blocked by lockout
+    const r4 = await adapter.actions.passwordLogin(mkReq());
+    expect(r4.status).toBe(429);
+
+    // Advance time beyond lockout: next attempt succeeds and resets
+    nowMs += 60_000;
+    const r5 = await adapter.actions.passwordLogin(mkReq());
+    expect(r5.status).toBe(302);
+
+    // Immediate retry after success: should be allowed (reset) and return 401 (not 429)
+    const r6 = await adapter.actions.passwordLogin(mkReq());
+    expect(r6.status).toBe(401);
   });
 });

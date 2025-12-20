@@ -7,6 +7,7 @@ import type {
 import type {
   ChallengeId,
   CreateSessionTokenResult,
+  SessionContextInput,
   UserId,
   WebAuthnCredentialId
 } from '../auth-types.js';
@@ -49,6 +50,10 @@ export type PasskeyLoginStartResult = {
 export type PasskeyLoginFinishInput = {
   challengeId: ChallengeId;
   response: AuthenticationResponseJSON;
+  /**
+   * Optional context used for session binding / device metadata.
+   */
+  sessionContext?: SessionContextInput;
 };
 
 export type PasskeyLoginFinishResult =

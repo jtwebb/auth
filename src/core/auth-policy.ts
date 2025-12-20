@@ -55,6 +55,16 @@ export type SessionPolicy = {
    * Set to 0 to touch on every request.
    */
   touchEveryMs?: number;
+  /**
+   * Optional session binding. When enabled, validation will reject sessions when the bound context
+   * does not match (e.g. different user agent or client id).
+   *
+   * Note: binding is environment-dependent; keep disabled by default.
+   */
+  bindTo?: {
+    clientId?: boolean;
+    userAgent?: boolean;
+  };
 };
 
 export type ChallengePolicy = {

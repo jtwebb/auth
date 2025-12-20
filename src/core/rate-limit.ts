@@ -124,3 +124,129 @@ export function createOnAuthAttemptRateLimiter(options: OnAuthAttemptRateLimiter
 
   return { onAuthAttempt, assertAllowed };
 }
+
+export type ProgressiveDelayRule = {
+  /**
+   * If the last failure is older than this, failures "cool off" and the counter resets.
+   */
+  failureWindowMs: number;
+  /**
+   * Start applying delay/lockout after this many failures.
+   */
+  startAfterFailures: number;
+  /**
+   * Base delay used for backoff (ms).
+   */
+  baseDelayMs: number;
+  /**
+   * Exponential factor per failure above startAfterFailures.
+   */
+  factor: number;
+  /**
+   * Cap for backoff delay (ms).
+   */
+  maxDelayMs: number;
+  /**
+   * After this many failures, enforce a lockout window.
+   */
+  lockoutAfterFailures: number;
+  /**
+   * Lockout duration (ms).
+   */
+  lockoutMs: number;
+};
+
+export type ProgressiveDelayStatus =
+  | { ok: true }
+  | { ok: false; retryAfterMs: number; failures: number; locked: boolean };
+
+type BackoffState = {
+  failures: number;
+  lastFailureMs: number;
+  lockedUntilMs: number;
+  nextAllowedAtMs: number;
+};
+
+/**
+ * In-memory progressive delays + temporary lockouts.
+ *
+ * - Increases retry delay with consecutive failures.
+ * - Resets on success.
+ * - Intended for single-instance. For multi-instance, use shared storage.
+ */
+export class InMemoryProgressiveDelay {
+  private readonly state = new Map<string, BackoffState>();
+  private readonly nowMs: () => number;
+
+  constructor(options: { nowMs?: () => number } = {}) {
+    this.nowMs = options.nowMs ?? (() => Date.now());
+  }
+
+  check(key: string): ProgressiveDelayStatus {
+    if (!key) return { ok: true };
+    const now = this.nowMs();
+    const s = this.state.get(key);
+    if (!s) return { ok: true };
+    const until = Math.max(s.lockedUntilMs, s.nextAllowedAtMs);
+    if (until <= now) return { ok: true };
+    return {
+      ok: false,
+      retryAfterMs: until - now,
+      failures: s.failures,
+      locked: s.lockedUntilMs > now
+    };
+  }
+
+  recordFailure(key: string, rule: ProgressiveDelayRule): ProgressiveDelayStatus {
+    if (!key) return { ok: true };
+    validateProgressiveRule(rule);
+    const now = this.nowMs();
+
+    const prev = this.state.get(key);
+    const cooled =
+      prev !== undefined && now - prev.lastFailureMs > rule.failureWindowMs ? undefined : prev;
+
+    const failures = (cooled?.failures ?? 0) + 1;
+    const lastFailureMs = now;
+
+    let nextAllowedAtMs = now;
+    if (failures >= rule.startAfterFailures) {
+      const n = failures - rule.startAfterFailures;
+      const delay = Math.min(rule.maxDelayMs, Math.round(rule.baseDelayMs * rule.factor ** n));
+      nextAllowedAtMs = now + delay;
+    }
+
+    let lockedUntilMs = cooled?.lockedUntilMs ?? 0;
+    if (failures >= rule.lockoutAfterFailures) {
+      lockedUntilMs = Math.max(lockedUntilMs, now + rule.lockoutMs);
+    }
+
+    this.state.set(key, { failures, lastFailureMs, lockedUntilMs, nextAllowedAtMs });
+    return this.check(key);
+  }
+
+  recordSuccess(key: string): void {
+    if (!key) return;
+    this.state.delete(key);
+  }
+}
+
+function validateProgressiveRule(rule: ProgressiveDelayRule): void {
+  if (!Number.isFinite(rule.failureWindowMs) || rule.failureWindowMs <= 0)
+    throw new AuthError('invalid_input', 'progressive delay rule.failureWindowMs must be > 0');
+  if (!Number.isFinite(rule.startAfterFailures) || rule.startAfterFailures < 1)
+    throw new AuthError('invalid_input', 'progressive delay rule.startAfterFailures must be >= 1');
+  if (!Number.isFinite(rule.baseDelayMs) || rule.baseDelayMs < 0)
+    throw new AuthError('invalid_input', 'progressive delay rule.baseDelayMs must be >= 0');
+  if (!Number.isFinite(rule.factor) || rule.factor < 1)
+    throw new AuthError('invalid_input', 'progressive delay rule.factor must be >= 1');
+  if (!Number.isFinite(rule.maxDelayMs) || rule.maxDelayMs < 0)
+    throw new AuthError('invalid_input', 'progressive delay rule.maxDelayMs must be >= 0');
+  if (!Number.isFinite(rule.lockoutAfterFailures) || rule.lockoutAfterFailures < 1)
+    throw new AuthError(
+      'invalid_input',
+      'progressive delay rule.lockoutAfterFailures must be >= 1'
+    );
+  if (!Number.isFinite(rule.lockoutMs) || rule.lockoutMs < 0)
+    throw new AuthError('invalid_input', 'progressive delay rule.lockoutMs must be >= 0');
+}

@@ -269,7 +269,9 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
             lastSeenAt: s.lastSeenAt ?? null,
             expiresAt: s.expiresAt,
             revokedAt: s.revokedAt ?? null,
-            rotatedFromHash: (s.rotatedFromHash ?? null) as unknown as string | null
+            rotatedFromHash: (s.rotatedFromHash ?? null) as unknown as string | null,
+            clientIdHash: s.clientIdHash ?? null,
+            userAgentHash: s.userAgentHash ?? null
           })
           .execute();
       },
@@ -284,7 +286,9 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
             'lastSeenAt',
             'expiresAt',
             'revokedAt',
-            'rotatedFromHash'
+            'rotatedFromHash',
+            'clientIdHash',
+            'userAgentHash'
           ])
           .where('tokenHash', '=', tokenHash as unknown as string)
           .executeTakeFirst();
@@ -299,9 +303,46 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           rotatedFromHash: (() => {
             const rot = toOptionalString(getField(r, 'rotatedFromHash'));
             return rot ? asSessionTokenHash(rot) : undefined;
-          })()
+          })(),
+          clientIdHash: toOptionalString(getField(r, 'clientIdHash')),
+          userAgentHash: toOptionalString(getField(r, 'userAgentHash'))
         };
         return out;
+      },
+
+      async listSessionsForUser(userId: UserId) {
+        const rows = await options.db
+          .selectFrom(tables.sessions)
+          .select([
+            'tokenHash',
+            'userId',
+            'createdAt',
+            'lastSeenAt',
+            'expiresAt',
+            'revokedAt',
+            'rotatedFromHash',
+            'clientIdHash',
+            'userAgentHash'
+          ])
+          .where('userId', '=', userId as unknown as string)
+          .orderBy('createdAt', 'desc')
+          .execute();
+        return rows.map(
+          (r: unknown): SessionRecord => ({
+            tokenHash: asSessionTokenHash(toString(getField(r, 'tokenHash'))),
+            userId: asUserId(toString(getField(r, 'userId'))),
+            createdAt: toDate(getField(r, 'createdAt')),
+            lastSeenAt: toOptionalDate(getField(r, 'lastSeenAt')),
+            expiresAt: toDate(getField(r, 'expiresAt')),
+            revokedAt: toOptionalDate(getField(r, 'revokedAt')),
+            rotatedFromHash: (() => {
+              const rot = toOptionalString(getField(r, 'rotatedFromHash'));
+              return rot ? asSessionTokenHash(rot) : undefined;
+            })(),
+            clientIdHash: toOptionalString(getField(r, 'clientIdHash')),
+            userAgentHash: toOptionalString(getField(r, 'userAgentHash'))
+          })
+        );
       },
 
       async touchSession(tokenHash: SessionTokenHash, lastSeenAt: Date) {
@@ -329,6 +370,20 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .execute();
       },
 
+      async revokeAllUserSessionsExceptTokenHash(
+        userId: UserId,
+        exceptTokenHash: SessionTokenHash,
+        revokedAt: Date
+      ) {
+        await options.db
+          .updateTable(tables.sessions)
+          .set({ revokedAt })
+          .where('userId', '=', userId as unknown as string)
+          .where('tokenHash', '<>', exceptTokenHash as unknown as string)
+          .where('revokedAt', 'is', null)
+          .execute();
+      },
+
       async rotateSession(
         oldTokenHash: SessionTokenHash,
         newSession: SessionRecord,
@@ -344,7 +399,9 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
               lastSeenAt: newSession.lastSeenAt ?? null,
               expiresAt: newSession.expiresAt,
               revokedAt: null,
-              rotatedFromHash: (newSession.rotatedFromHash ?? null) as unknown as string | null
+              rotatedFromHash: (newSession.rotatedFromHash ?? null) as unknown as string | null,
+              clientIdHash: newSession.clientIdHash ?? null,
+              userAgentHash: newSession.userAgentHash ?? null
             })
             .execute();
           await tx

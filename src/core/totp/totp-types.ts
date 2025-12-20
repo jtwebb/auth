@@ -1,4 +1,9 @@
-import type { ChallengeId, CreateSessionTokenResult, UserId } from '../auth-types.js';
+import type {
+  ChallengeId,
+  CreateSessionTokenResult,
+  SessionContextInput,
+  UserId
+} from '../auth-types.js';
 
 export type StartTotpEnrollmentInput = {
   userId: UserId;
@@ -24,6 +29,10 @@ export type FinishTotpEnrollmentResult = { enabled: true };
 export type VerifyTotpInput = {
   pendingToken: ChallengeId;
   code: string;
+  /**
+   * Optional context used for session binding / device metadata.
+   */
+  sessionContext?: SessionContextInput;
 };
 
 export type VerifyTotpResult = {
