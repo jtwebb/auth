@@ -689,6 +689,42 @@ await passkeys.login(); // passkey-first (discoverable)
 
 See `SECURITY.md` and `docs/production-hardening.md`.
 
+## Password reset / account recovery (server)
+
+This library includes **primitives** for password reset tokens (it does not send email for you).
+
+Security properties:
+
+- Reset tokens are **random**, and only a **hash** is stored server-side (never plaintext).
+- Tokens are **single-use** and **expire** (default 15 minutes).
+- On successful reset, the library **revokes all user sessions by default**.
+
+Typical flow:
+
+1. User submits identifier (email/username). Your server calls:
+
+```ts
+const out = await core.startPasswordReset({ identifier });
+// IMPORTANT: do not reveal out.created to the end user (avoid enumeration).
+// If out.created === true, send the reset link containing out.token to the user via email/SMS.
+```
+
+2. User clicks reset link and submits a new password along with the token:
+
+```ts
+await core.resetPasswordWithToken({
+  token,
+  newPassword,
+  revokeAllUserSessions: true // default
+});
+```
+
+Hardening recommendations:
+
+- Enable adapter **rate limiting + progressive lockouts** on password reset endpoints
+- Store `passwordResetTokenHashSecret` in a secrets manager/KMS (recommended)
+- Consider additional verification for high-risk accounts (step-up via passkey/TOTP)
+
 ## Rate limiting (recommended)
 
 This library exposes an `onAuthAttempt` hook for **logging/auditing/rate-limit tracking**.

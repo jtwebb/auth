@@ -8,6 +8,7 @@ export type AuthErrorCode =
   | 'not_found'
   | 'internal_error'
   | 'password_invalid'
+  | 'password_reset_invalid'
   | 'passkey_invalid'
   | 'challenge_invalid'
   | 'challenge_expired'
@@ -54,6 +55,7 @@ export function defaultStatusForCode(code: AuthErrorCode): number {
       return 400;
     case 'unauthorized':
     case 'password_invalid':
+    case 'password_reset_invalid':
     case 'passkey_invalid':
     case 'backup_code_invalid':
     case 'backup_code_consumed':

@@ -74,6 +74,13 @@ export type ChallengePolicy = {
   ttlMs: number;
 };
 
+export type PasswordResetPolicy = {
+  /**
+   * Reset token lifetime in milliseconds.
+   */
+  tokenTtlMs: number;
+};
+
 export type AuthPolicy = {
   password: PasswordPolicy;
   passkey: PasskeyPolicy;
@@ -81,6 +88,7 @@ export type AuthPolicy = {
   totp: TotpPolicy;
   session: SessionPolicy;
   challenge: ChallengePolicy;
+  passwordReset: PasswordResetPolicy;
 };
 
 export type TotpPolicy = {
@@ -122,5 +130,8 @@ export const defaultAuthPolicy: AuthPolicy = {
   },
   challenge: {
     ttlMs: 1000 * 60 * 5 // 5m
+  },
+  passwordReset: {
+    tokenTtlMs: 1000 * 60 * 15 // 15m
   }
 };

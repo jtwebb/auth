@@ -19,6 +19,7 @@ import type { PgClient, PgPool } from './pg-types.js';
 export type PgAuthTables = {
   users: string;
   passwordCredentials: string;
+  passwordResetTokens: string;
   webauthnCredentials: string;
   challenges: string;
   sessions: string;
@@ -111,6 +112,30 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
            DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = EXCLUDED.updated_at`,
           [record.userId, record.passwordHash, record.createdAt, record.updatedAt ?? null]
         );
+      }
+    },
+
+    passwordResetTokens: {
+      async createToken(record) {
+        await options.pool.query(
+          `INSERT INTO ${tables.passwordResetTokens} (token_hash, user_id, created_at, expires_at, consumed_at)
+           VALUES ($1, $2, $3, $4, NULL)`,
+          [record.tokenHash, record.userId, record.createdAt, record.expiresAt]
+        );
+      },
+      async consumeToken(tokenHash, consumedAt) {
+        const res = await options.pool.query<{ user_id: string }>(
+          `UPDATE ${tables.passwordResetTokens}
+           SET consumed_at = $2
+           WHERE token_hash = $1
+             AND consumed_at IS NULL
+             AND expires_at > $2
+           RETURNING user_id`,
+          [tokenHash, consumedAt]
+        );
+        const r = res.rows[0];
+        if (!r) return null;
+        return { userId: asUserId(r.user_id) };
       }
     },
 
@@ -558,6 +583,7 @@ function resolveTables(options: CreatePgAuthStorageOptions): PgAuthTables {
   const defaults: PgAuthTables = {
     users: `${prefix}auth_users`,
     passwordCredentials: `${prefix}auth_password_credentials`,
+    passwordResetTokens: `${prefix}auth_password_reset_tokens`,
     webauthnCredentials: `${prefix}auth_webauthn_credentials`,
     challenges: `${prefix}auth_challenges`,
     sessions: `${prefix}auth_sessions`,
@@ -568,6 +594,7 @@ function resolveTables(options: CreatePgAuthStorageOptions): PgAuthTables {
   return {
     users: qualify(options.schema, merged.users),
     passwordCredentials: qualify(options.schema, merged.passwordCredentials),
+    passwordResetTokens: qualify(options.schema, merged.passwordResetTokens),
     webauthnCredentials: qualify(options.schema, merged.webauthnCredentials),
     challenges: qualify(options.schema, merged.challenges),
     sessions: qualify(options.schema, merged.sessions),

@@ -1,5 +1,6 @@
 import type { ChallengeId, SessionTokenHash, UserId, WebAuthnCredentialId } from '../auth-types.js';
 import type { AuthenticatorTransportFuture, CredentialDeviceType } from '@simplewebauthn/server';
+import type { PasswordResetTokenHash } from '../auth-types.js';
 
 export type ChallengeType = 'passkey_register' | 'passkey_login' | 'totp_pending';
 
@@ -88,6 +89,26 @@ export type AuthStorage = {
   passwordCredentials: {
     getForUser(userId: UserId): Promise<PasswordCredentialRecord | null>;
     upsertForUser(record: PasswordCredentialRecord): Promise<void>;
+  };
+
+  /**
+   * Optional password reset token storage. Required for password reset flows.
+   * Store ONLY hashes (never store plaintext reset tokens).
+   */
+  passwordResetTokens?: {
+    createToken(record: {
+      tokenHash: PasswordResetTokenHash;
+      userId: UserId;
+      createdAt: Date;
+      expiresAt: Date;
+    }): Promise<void>;
+    /**
+     * Atomically consume a token exactly once, only if unexpired.
+     */
+    consumeToken(
+      tokenHash: PasswordResetTokenHash,
+      consumedAt: Date
+    ): Promise<{ userId: UserId } | null>;
   };
 
   challenges: {

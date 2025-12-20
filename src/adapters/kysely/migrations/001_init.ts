@@ -34,6 +34,31 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .execute();
 
   await db.schema
+    .createTable('auth_password_reset_tokens')
+    .ifNotExists()
+    .addColumn('token_hash', 'text', col => col.primaryKey())
+    .addColumn('user_id', 'text', col =>
+      col.notNull().references('auth_users.id').onDelete('cascade')
+    )
+    .addColumn('created_at', 'timestamptz', col => col.notNull().defaultTo(sql`now()`))
+    .addColumn('expires_at', 'timestamptz', col => col.notNull())
+    .addColumn('consumed_at', 'timestamptz')
+    .execute();
+
+  await db.schema
+    .createIndex('auth_password_reset_tokens_user_id_idx')
+    .ifNotExists()
+    .on('auth_password_reset_tokens')
+    .column('user_id')
+    .execute();
+  await db.schema
+    .createIndex('auth_password_reset_tokens_expires_at_idx')
+    .ifNotExists()
+    .on('auth_password_reset_tokens')
+    .column('expires_at')
+    .execute();
+
+  await db.schema
     .createTable('auth_webauthn_credentials')
     .ifNotExists()
     .addColumn('id', 'text', col => col.primaryKey())

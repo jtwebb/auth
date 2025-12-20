@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS auth_password_credentials (
   updated_at timestamptz NULL
 );
 
+CREATE TABLE IF NOT EXISTS auth_password_reset_tokens (
+  token_hash text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NULL
+);
+CREATE INDEX IF NOT EXISTS auth_password_reset_tokens_user_id_idx ON auth_password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS auth_password_reset_tokens_expires_at_idx ON auth_password_reset_tokens(expires_at);
+
 CREATE TABLE IF NOT EXISTS auth_webauthn_credentials (
   id text PRIMARY KEY, -- credential ID (base64url)
   user_id text NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,

@@ -5,6 +5,8 @@ export type SessionToken = Brand<string, 'SessionToken'>;
 export type SessionTokenHash = Brand<string, 'SessionTokenHash'>;
 export type ChallengeId = Brand<string, 'ChallengeId'>;
 export type WebAuthnCredentialId = Brand<string, 'WebAuthnCredentialId'>;
+export type PasswordResetToken = Brand<string, 'PasswordResetToken'>;
+export type PasswordResetTokenHash = Brand<string, 'PasswordResetTokenHash'>;
 
 export type CreateSessionTokenResult = {
   sessionToken: SessionToken;

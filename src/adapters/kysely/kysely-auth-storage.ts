@@ -20,6 +20,7 @@ import type { KyselyDb, KyselyTx } from './kysely-types.js';
 export type KyselyAuthTables = {
   users: string;
   passwordCredentials: string;
+  passwordResetTokens: string;
   webauthnCredentials: string;
   challenges: string;
   sessions: string;
@@ -119,6 +120,34 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
             })
           )
           .execute();
+      }
+    },
+
+    passwordResetTokens: {
+      async createToken(record) {
+        await options.db
+          .insertInto(tables.passwordResetTokens)
+          .values({
+            tokenHash: record.tokenHash as unknown as string,
+            userId: record.userId as unknown as string,
+            createdAt: record.createdAt,
+            expiresAt: record.expiresAt,
+            consumedAt: null
+          })
+          .execute();
+      },
+      async consumeToken(tokenHash, consumedAt) {
+        const r = await options.db
+          .updateTable(tables.passwordResetTokens)
+          .set({ consumedAt })
+          .where('tokenHash', '=', tokenHash as unknown as string)
+          .where('consumedAt', 'is', null)
+          .where('expiresAt', '>', consumedAt)
+          .returning(['userId'])
+          .executeTakeFirst();
+        if (!r) return null;
+        const uid = toOptionalString(getField(r, 'userId'));
+        return uid ? { userId: asUserId(uid) } : null;
       }
     },
 
@@ -631,6 +660,7 @@ function resolveTables(options: CreateKyselyAuthStorageOptions): KyselyAuthTable
   const defaults: KyselyAuthTables = {
     users: `${prefix}authUsers`,
     passwordCredentials: `${prefix}authPasswordCredentials`,
+    passwordResetTokens: `${prefix}authPasswordResetTokens`,
     webauthnCredentials: `${prefix}authWebauthnCredentials`,
     challenges: `${prefix}authChallenges`,
     sessions: `${prefix}authSessions`,
