@@ -653,6 +653,44 @@ export async function loader({ request }: { request: Request }) {
 - TOTP enrollment: `auth.actions.totpEnrollmentStart(request)` then `auth.actions.totpEnrollmentFinish(request)`
 - TOTP verification (step-up): `auth.actions.totpVerify(request, { redirectTo: "/" })`
 
+### CSRF protection (double-submit token, enabled by default)
+
+The React Router adapter enforces CSRF protection on state-changing actions by default:
+
+- **Origin/Referer** must match your allowed origins
+- **Double-submit token**: a non-HttpOnly `csrf` cookie must match a submitted token
+  - form posts: include a `csrfToken` field
+  - fetch/XHR: include an `x-csrf-token` header
+
+Mint a CSRF token cookie in a loader and embed it in your form:
+
+```ts
+export async function loader({ request }: { request: Request }) {
+  const { token, headers } = auth.csrf.getToken(request);
+  return new Response(JSON.stringify({ csrfToken: token }), { headers });
+}
+
+export async function action({ request }: { request: Request }) {
+  return await auth.actions.passwordLogin(request, { redirectTo: '/' });
+}
+```
+
+Then include it in your POST:
+
+- HTML form: add `<input type="hidden" name="csrfToken" value="...">`
+- fetch: set header `x-csrf-token: <token>` (and ensure cookie is sent)
+
+To disable (not recommended):
+
+```ts
+createReactRouterAuthAdapter({
+  core,
+  sessionCookie,
+  csrf: { doubleSubmit: { enabled: false } } // keeps Origin/Referer checks only
+  // or csrf: { enabled: false } to disable all CSRF checks
+});
+```
+
 ### 2FA (TOTP) flow (server)
 
 - If TOTP is enabled for a user, **password/passkey login will redirect to** `twoFactorRedirectTo` and set an **httpOnly** `totp` cookie.

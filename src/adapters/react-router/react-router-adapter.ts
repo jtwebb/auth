@@ -12,6 +12,7 @@ import type {
   PasskeyLoginFinishInput,
   PasskeyRegistrationFinishInput
 } from '../../core/passkey/passkey-types.js';
+import { randomBytes } from 'node:crypto';
 import type { CookieOptions } from './cookies.js';
 import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
 import { assertSameOrigin, json, readForm, readJson, redirect } from './http.js';
@@ -41,6 +42,32 @@ export type ReactRouterAuthAdapterOptions = {
      * Defaults to false (stricter).
      */
     allowMissingOrigin?: boolean;
+    /**
+     * Double-submit CSRF protection (cookie + header/form field). Enabled by default.
+     *
+     * You must mint a CSRF cookie token on a GET/loader route by calling `auth.csrf.getToken(request)`
+     * and adding the returned headers to your response, then include the token in subsequent POSTs.
+     */
+    doubleSubmit?: {
+      enabled?: boolean;
+      /**
+       * CSRF token cookie configuration. Must NOT be HttpOnly (so browser JS can read it for fetch),
+       * or you must embed it into a form field server-side.
+       */
+      cookie?: CookieOptions;
+      /**
+       * Header name for fetch/XHR clients.
+       */
+      headerName?: string;
+      /**
+       * Form field name for non-JS form POSTs.
+       */
+      formFieldName?: string;
+      /**
+       * Optional JSON field name if clients submit token in JSON bodies.
+       */
+      jsonFieldName?: string;
+    };
   };
   /**
    * Basic rate limiting for auth endpoints. Enabled by default.
@@ -114,6 +141,17 @@ export type ReactRouterAuthAdapter = {
    * Logout (revoke server-side and clear cookie).
    */
   logout(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
+  /**
+   * CSRF helper for browser apps (double-submit).
+   */
+  csrf: {
+    /**
+     * Get or mint a CSRF token cookie for the current client.
+     * Add the returned headers to your loader response and include the token in subsequent POSTs
+     * (header or form field).
+     */
+    getToken(request: Request): { token: string; headers: Headers };
+  };
 
   actions: {
     passwordLogin(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
@@ -135,6 +173,16 @@ export function createReactRouterAuthAdapter(
   const allowedOrigins = options.csrf?.allowedOrigins ?? options.core.policy.passkey.origins;
   const csrfEnabled = options.csrf?.enabled ?? true;
   const csrfAllowMissingOrigin = options.csrf?.allowMissingOrigin ?? false;
+  const csrfDoubleSubmitEnabled = options.csrf?.doubleSubmit?.enabled ?? true;
+  const csrfTokenCookie: CookieOptions = options.csrf?.doubleSubmit?.cookie ?? {
+    name: 'csrf',
+    path: '/',
+    httpOnly: false,
+    secure: true,
+    sameSite: 'strict'
+  };
+  const csrfHeaderName = (options.csrf?.doubleSubmit?.headerName ?? 'x-csrf-token').toLowerCase();
+  const csrfFormFieldName = options.csrf?.doubleSubmit?.formFieldName ?? 'csrfToken';
   const totpPendingCookie: CookieOptions = options.totpPendingCookie ?? {
     name: 'totp',
     path: '/',
@@ -267,9 +315,59 @@ export function createReactRouterAuthAdapter(
     progressiveStore.recordSuccess(key);
   };
 
-  const csrfCheck = (request: Request) => {
+  const csrfCheckOrigin = (request: Request) => {
     if (!csrfEnabled) return;
     assertSameOrigin(request, allowedOrigins, { allowMissingOrigin: csrfAllowMissingOrigin });
+  };
+
+  const base64UrlEncode = (bytes: Uint8Array): string =>
+    Buffer.from(bytes)
+      .toString('base64')
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replaceAll('=', '');
+
+  const getOrCreateCsrfToken = (request: Request): { token: string; headers: Headers } => {
+    const headers = new Headers();
+    const existing = getCookie(request, csrfTokenCookie.name);
+    if (typeof existing === 'string' && existing.length >= 16) {
+      return { token: existing, headers };
+    }
+    const token = base64UrlEncode(randomBytes(32));
+    headers.append(
+      'set-cookie',
+      serializeCookie(csrfTokenCookie.name, token, {
+        ...csrfTokenCookie,
+        // Ensure it's readable by JS if clients use header-based submit.
+        httpOnly: false
+      })
+    );
+    return { token, headers };
+  };
+
+  const assertDoubleSubmitCsrf = (request: Request, providedToken?: string | null): void => {
+    if (!csrfEnabled || !csrfDoubleSubmitEnabled) return;
+    const cookieToken = getCookie(request, csrfTokenCookie.name);
+    const tokenFromCookie = typeof cookieToken === 'string' ? cookieToken : null;
+    const tokenFromProvided =
+      typeof providedToken === 'string' && providedToken.trim() ? providedToken.trim() : null;
+    const tokenFromHeader = (() => {
+      const v = request.headers.get(csrfHeaderName);
+      return v && v.trim() ? v.trim() : null;
+    })();
+    const token = tokenFromProvided ?? tokenFromHeader;
+    if (!tokenFromCookie || !token) {
+      throw new AuthError('forbidden', 'CSRF protection: missing token', {
+        status: 403,
+        publicMessage: 'Forbidden'
+      });
+    }
+    if (token !== tokenFromCookie) {
+      throw new AuthError('forbidden', 'CSRF protection: invalid token', {
+        status: 403,
+        publicMessage: 'Forbidden'
+      });
+    }
   };
 
   const sessionContextFromRequest = (request: Request) => ({
@@ -298,6 +396,12 @@ export function createReactRouterAuthAdapter(
         )
       );
     }
+    // Opportunistically ensure CSRF cookie exists for authenticated browser sessions.
+    if (csrfEnabled && csrfDoubleSubmitEnabled) {
+      const csrf = getOrCreateCsrfToken(request);
+      const single = csrf.headers.get('set-cookie');
+      if (single) headers.append('set-cookie', single);
+    }
     return { result, headers };
   };
 
@@ -316,7 +420,8 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
+    assertDoubleSubmitCsrf(request);
     const token = getCookie(request, options.sessionCookie.name);
     if (token) await options.core.revokeSession({ sessionToken: token as unknown as SessionToken });
     const res = redirect(opts.redirectTo ?? '/login');
@@ -331,11 +436,12 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     let idKey: string | null = null;
     let clientKey: string | null = null;
     try {
       const form = await readForm(request);
+      assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
       const identifier = String(form.get('identifier') ?? '');
       const password = String(form.get('password') ?? '');
       idKey = `password_login:id:${identifier}`;
@@ -389,9 +495,10 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
       const form = await readForm(request);
+      assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
       const identifier = String(form.get('identifier') ?? '');
       const password = String(form.get('password') ?? '');
       const { session } = await options.core.registerPassword({
@@ -413,10 +520,15 @@ export function createReactRouterAuthAdapter(
   };
 
   const passkeyRegistrationStart = async (request: Request): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
       const { userId, headers } = await requireUser(request);
-      const body = await readJson<{ userName: string; userDisplayName?: string }>(request);
+      const body = await readJson<{
+        userName: string;
+        userDisplayName?: string;
+        csrfToken?: string;
+      }>(request);
+      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
       const out = await options.core.startPasskeyRegistration({
         userId: userId as unknown as UserId,
         userName: body.userName,
@@ -432,10 +544,13 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
       const { userId, headers } = await requireUser(request);
-      const body = await readJson<Omit<PasskeyRegistrationFinishInput, 'userId'>>(request);
+      const body = await readJson<
+        Omit<PasskeyRegistrationFinishInput, 'userId'> & { csrfToken?: string }
+      >(request);
+      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
       await options.core.finishPasskeyRegistration({
         userId: userId as unknown as UserId,
         challengeId: body.challengeId as unknown as ChallengeId,
@@ -448,9 +563,10 @@ export function createReactRouterAuthAdapter(
   };
 
   const passkeyLoginStart = async (request: Request): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
-      const body = await readJson<{ userId?: string }>(request);
+      const body = await readJson<{ userId?: string; csrfToken?: string }>(request);
+      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
       const out = await options.core.startPasskeyLogin({
         userId: body.userId ? (body.userId as unknown as UserId) : undefined
       });
@@ -464,11 +580,16 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     let challengeKey: string | null = null;
     let clientKey: string | null = null;
     try {
       const body = await readJson<PasskeyLoginFinishInput>(request);
+      // Allow token via header for JS clients; optional body.csrfToken also supported if present.
+      assertDoubleSubmitCsrf(
+        request,
+        (body as unknown as { csrfToken?: string }).csrfToken ?? null
+      );
       const clientId = getClientId(request);
       challengeKey = `passkey_finish:challenge:${body.challengeId as unknown as string}`;
       clientKey = clientId ? `passkey_finish:client:${clientId}` : null;
@@ -519,10 +640,11 @@ export function createReactRouterAuthAdapter(
   };
 
   const totpEnrollmentStart = async (request: Request): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
       const { userId, headers } = await requireUser(request);
-      const body = await readJson<{ accountName: string }>(request);
+      const body = await readJson<{ accountName: string; csrfToken?: string }>(request);
+      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
       const out = await options.core.startTotpEnrollment({
         userId: userId as unknown as UserId,
         accountName: body.accountName
@@ -537,10 +659,11 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     try {
       const { userId, headers } = await requireUser(request);
-      const body = await readJson<{ code: string }>(request);
+      const body = await readJson<{ code: string; csrfToken?: string }>(request);
+      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
       await options.core.finishTotpEnrollment({
         userId: userId as unknown as UserId,
         code: body.code
@@ -555,7 +678,7 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    csrfCheck(request);
+    csrfCheckOrigin(request);
     let pendingKey: string | null = null;
     let clientKey: string | null = null;
     try {
@@ -565,6 +688,8 @@ export function createReactRouterAuthAdapter(
           publicMessage: 'Invalid code',
           status: 401
         });
+      const form = await readForm(request);
+      assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
       const clientId = getClientId(request);
       pendingKey = `totp_verify:pending:${pending}`;
       clientKey = clientId ? `totp_verify:client:${clientId}` : null;
@@ -575,7 +700,6 @@ export function createReactRouterAuthAdapter(
       enforceRateLimit(pendingKey, rules.totpVerifyPerPending);
       if (clientKey) enforceRateLimit(clientKey, rules.totpVerifyPerClient);
 
-      const form = await readForm(request);
       const code = String(form.get('code') ?? '');
       const out = await options.core.verifyTotp({
         pendingToken: pending as unknown as ChallengeId,
@@ -609,6 +733,9 @@ export function createReactRouterAuthAdapter(
     validate,
     requireUser,
     logout,
+    csrf: {
+      getToken: (request: Request) => getOrCreateCsrfToken(request)
+    },
     actions: {
       passwordLogin,
       passwordRegister,

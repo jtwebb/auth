@@ -117,6 +117,50 @@ describe('adapters/react-router/react-router-adapter', () => {
     });
   });
 
+  it('enforces double-submit CSRF tokens by default (cookie + form field)', async () => {
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      loginPassword: async () => ({
+        userId: 'u1',
+        session: { sessionToken: 't', sessionTokenHash: 'h' }
+      })
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' }
+    });
+
+    const reqMissing = new Request('https://example.com/login', {
+      method: 'POST',
+      headers: {
+        origin: 'https://example.com',
+        'content-type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({ identifier: 'a@example.com', password: 'pw' })
+    });
+    const resMissing = await adapter.actions.passwordLogin(reqMissing);
+    expect(resMissing.status).toBe(403);
+
+    const { token } = adapter.csrf.getToken(new Request('https://example.com'));
+    const reqOk = new Request('https://example.com/login', {
+      method: 'POST',
+      headers: {
+        origin: 'https://example.com',
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `csrf=${token}`
+      },
+      body: new URLSearchParams({
+        csrfToken: token,
+        identifier: 'a@example.com',
+        password: 'pw'
+      })
+    });
+    const resOk = await adapter.actions.passwordLogin(reqOk);
+    expect(resOk.status).toBe(302);
+    expect(resOk.headers.get('set-cookie')).toMatch(/sid=/);
+  });
+
   it('derives userId from session (ignores client userId) for authenticated enrollment flows', async () => {
     let finishUserId: string | null = null;
 
