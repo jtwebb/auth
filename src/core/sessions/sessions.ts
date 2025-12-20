@@ -64,8 +64,15 @@ export async function validateSession(ctx: {
     return { ok: true, userId: session.userId, rotatedSession: rotated };
   }
 
-  // Touch for sliding sessions
-  await ctx.storage.sessions.touchSession(tokenHash, now);
+  // Touch for sliding sessions (reduce write amplification)
+  const touchEveryMs = ctx.policy.session.touchEveryMs;
+  const shouldTouch =
+    touchEveryMs === undefined || touchEveryMs <= 0
+      ? true
+      : (session.lastSeenAt ?? session.createdAt).getTime() + touchEveryMs <= now.getTime();
+  if (shouldTouch) {
+    await ctx.storage.sessions.touchSession(tokenHash, now);
+  }
   return { ok: true, userId: session.userId };
 }
 

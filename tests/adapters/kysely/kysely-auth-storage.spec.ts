@@ -61,4 +61,17 @@ describe('kysely adapter: createKyselyAuthStorage (smoke)', () => {
 
     expect(calls.some(c => c.table === 'x_authSessions')).toBe(true);
   });
+
+  it('supports atomic TOTP replay mitigation via updateLastUsedStepIfGreater', async () => {
+    const { db, calls } = createMockDb();
+    const storage = createKyselyAuthStorage({ db });
+
+    const ok = await storage.totp.updateLastUsedStepIfGreater?.({
+      userId: 'u1' as unknown as UserId,
+      step: 123,
+      usedAt: new Date()
+    });
+    expect(ok).toBe(false);
+    expect(calls.some(c => c.op === 'updateTable' && c.table === 'authTotp')).toBe(true);
+  });
 });

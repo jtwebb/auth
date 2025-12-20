@@ -11,7 +11,7 @@ function makeMemoryStorage() {
   const pending = new Map<string, { encryptedSecret: string; createdAt: Date }>();
   const enabled = new Map<
     string,
-    { encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date }
+    { encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date; lastUsedStep?: number }
   >();
   const challenges = new Map<string, StoredChallenge>();
   const sessions = new Map<string, SessionRecord>();
@@ -30,7 +30,13 @@ function makeMemoryStorage() {
       }
     },
     totp: {
-      getEnabled: async userId => enabled.get(userId as any) ?? null,
+      // Return a deliberately "stale" view of lastUsedStep to simulate concurrent requests
+      // that both verify against the same prior state. The atomic method should catch replays.
+      getEnabled: async userId => {
+        const e = enabled.get(userId as any) ?? null;
+        if (!e) return null;
+        return { ...e, lastUsedAt: e.lastUsedAt, lastUsedStep: 0 };
+      },
       getPending: async userId => pending.get(userId as any) ?? null,
       setPending: async (userId, encryptedSecret, createdAt) => {
         pending.set(userId as any, { encryptedSecret, createdAt });
@@ -48,10 +54,21 @@ function makeMemoryStorage() {
       updateLastUsedAt: async (userId, lastUsedAt) => {
         const e = enabled.get(userId as any);
         if (e) e.lastUsedAt = lastUsedAt;
+      },
+      updateLastUsedStepIfGreater: async ({ userId, step, usedAt }) => {
+        const e = enabled.get(userId as any);
+        if (!e) return false;
+        const cur = e.lastUsedStep ?? 0;
+        if (step <= cur) return false;
+        e.lastUsedStep = step;
+        e.lastUsedAt = usedAt;
+        return true;
       }
     },
     sessions: {
-      createSession: async s => sessions.set(s.tokenHash as any, s),
+      createSession: async s => {
+        sessions.set(s.tokenHash as any, s);
+      },
       getSessionByTokenHash: async h => sessions.get(h as any) ?? null,
       touchSession: async (h, lastSeenAt) => {
         const s = sessions.get(h as any);
@@ -80,6 +97,7 @@ function makeMemoryStorage() {
 describe('core/totp', () => {
   it('enrolls TOTP and uses it for step-up to create a session', async () => {
     const mem = makeMemoryStorage();
+    const events: any[] = [];
     const now = new Date('2025-01-01T00:00:00.000Z');
     let tick = 0;
     const core = createAuthCore({
@@ -87,6 +105,9 @@ describe('core/totp', () => {
       clock: { now: () => new Date(now.getTime() + tick) },
       randomBytes: n => new Uint8Array(n).fill(7),
       totpEncryptionKey: 'k',
+      onAuthAttempt: e => {
+        events.push(e);
+      },
       policy: {
         totp: { issuer: 'Example', digits: 6, periodSeconds: 30, allowedSkewSteps: 1 }
       } as any
@@ -120,6 +141,124 @@ describe('core/totp', () => {
     const out = await core.verifyTotp({ pendingToken: pending, code: code2 });
     expect(out.userId).toBe('u1');
     expect(out.session.sessionToken).toBeTruthy();
+    expect(events.some(e => e.type === 'totp_verify' && e.ok === true)).toBe(true);
+  });
+
+  it('rejects concurrent replay of the same TOTP step when storage supports atomic step updates', async () => {
+    const mem = makeMemoryStorage();
+    const base = new Date('2025-01-01T00:00:00.000Z');
+    let tick = 0;
+    const core = createAuthCore({
+      storage: mem.storage,
+      clock: { now: () => new Date(base.getTime() + tick) },
+      randomBytes: n => new Uint8Array(n).fill(7),
+      totpEncryptionKey: 'k',
+      policy: {
+        totp: { issuer: 'Example', digits: 6, periodSeconds: 30, allowedSkewSteps: 1 }
+      } as any
+    });
+
+    const start = await core.startTotpEnrollment({
+      userId: 'u1' as any,
+      accountName: 'a@example.com'
+    });
+    const codeEnroll = totpCode(start.secretBase32, new Date(base.getTime() + tick), 6, 30);
+    await core.finishTotpEnrollment({ userId: 'u1' as any, code: codeEnroll });
+
+    // Move to the next step before verifying, so we aren't replaying the enrollment step.
+    tick += 30_000;
+    const code = totpCode(start.secretBase32, new Date(base.getTime() + tick), 6, 30);
+
+    const p1 = 'pending-1' as any;
+    const p2 = 'pending-2' as any;
+    await mem.storage.challenges.createChallenge({
+      id: p1,
+      type: 'totp_pending',
+      userId: 'u1' as any,
+      challenge: '',
+      expiresAt: new Date(base.getTime() + tick + 5 * 60_000)
+    });
+    await mem.storage.challenges.createChallenge({
+      id: p2,
+      type: 'totp_pending',
+      userId: 'u1' as any,
+      challenge: '',
+      expiresAt: new Date(base.getTime() + tick + 5 * 60_000)
+    });
+
+    const ok = await core.verifyTotp({ pendingToken: p1, code });
+    expect(ok.userId).toBe('u1');
+
+    await expect(core.verifyTotp({ pendingToken: p2, code })).rejects.toMatchObject({
+      code: 'totp_invalid',
+      status: 401
+    });
+  });
+
+  it('supports TOTP encryption key rotation via key ids (v2) and can still decrypt legacy v1 secrets', async () => {
+    // We want to validate two things:
+    // 1) new enrollments use v2.<kid>.{iv}.{tag}.{ct} when a key ring is provided
+    // 2) a key ring can decrypt existing legacy v1 ciphertexts (no kid) by trying all keys
+    const mem = makeMemoryStorage();
+    const base = new Date('2025-01-01T00:00:00.000Z');
+    let tick = 0;
+
+    // Phase 1: legacy deployment encrypts v1 secrets with a single key.
+    const legacy = createAuthCore({
+      storage: mem.storage,
+      clock: { now: () => new Date(base.getTime() + tick) },
+      randomBytes: n => new Uint8Array(n).fill(7),
+      totpEncryptionKey: 'legacy-key',
+      policy: {
+        totp: { issuer: 'Example', digits: 6, periodSeconds: 30, allowedSkewSteps: 1 }
+      } as any
+    });
+
+    const startLegacy = await legacy.startTotpEnrollment({
+      userId: 'u1' as any,
+      accountName: 'a@example.com'
+    });
+    const codeLegacy = totpCode(startLegacy.secretBase32, new Date(base.getTime() + tick), 6, 30);
+    await legacy.finishTotpEnrollment({ userId: 'u1' as any, code: codeLegacy });
+
+    const legacyEncrypted = mem.enabled.get('u1' as any)?.encryptedSecret as string;
+    expect(legacyEncrypted.startsWith('v2.')).toBe(false);
+
+    // Phase 2: rotated deployment uses key ring. It must still decrypt the v1 secret.
+    const rotated = createAuthCore({
+      storage: mem.storage,
+      clock: { now: () => new Date(base.getTime() + tick) },
+      randomBytes: n => new Uint8Array(n).fill(7),
+      totpEncryptionKey: {
+        primaryKeyId: 'k2',
+        keys: { k1: 'legacy-key', k2: 'new-key' }
+      },
+      policy: {
+        totp: { issuer: 'Example', digits: 6, periodSeconds: 30, allowedSkewSteps: 1 }
+      } as any
+    });
+
+    tick += 30_000;
+    const p = 'pending-rot' as any;
+    await mem.storage.challenges.createChallenge({
+      id: p,
+      type: 'totp_pending',
+      userId: 'u1' as any,
+      challenge: '',
+      expiresAt: new Date(base.getTime() + tick + 5 * 60_000)
+    });
+    const codeStep = totpCode(startLegacy.secretBase32, new Date(base.getTime() + tick), 6, 30);
+    const out = await rotated.verifyTotp({ pendingToken: p, code: codeStep });
+    expect(out.userId).toBe('u1');
+
+    // New enrollments (new user) should encrypt as v2 with kid.
+    const startV2 = await rotated.startTotpEnrollment({
+      userId: 'u2' as any,
+      accountName: 'b@example.com'
+    });
+    void startV2;
+    const pendingV2 = await mem.storage.totp.getPending('u2' as any);
+    expect(pendingV2?.encryptedSecret.startsWith('v2.k2.')).toBe(true);
   });
 });
 

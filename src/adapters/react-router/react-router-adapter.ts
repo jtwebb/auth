@@ -1,7 +1,11 @@
 import type { AuthCore } from '../../core/create-auth-core.js';
 import { AuthError, isAuthError } from '../../core/auth-error.js';
-import type { SessionToken } from '../../core/auth-types.js';
+import type { ChallengeId, SessionToken, UserId } from '../../core/auth-types.js';
 import type { ValidateSessionResult } from '../../core/sessions/session-types.js';
+import type {
+  PasskeyLoginFinishInput,
+  PasskeyRegistrationFinishInput
+} from '../../core/passkey/passkey-types.js';
 import type { CookieOptions } from './cookies.js';
 import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
 import { assertSameOrigin, json, readForm, readJson, redirect } from './http.js';
@@ -26,6 +30,11 @@ export type ReactRouterAuthAdapterOptions = {
   csrf?: {
     enabled?: boolean;
     allowedOrigins?: readonly string[];
+    /**
+     * If true, allow requests with missing Origin/Referer (useful for non-browser clients).
+     * Defaults to false (stricter).
+     */
+    allowMissingOrigin?: boolean;
   };
 };
 
@@ -70,6 +79,7 @@ export function createReactRouterAuthAdapter(
 ): ReactRouterAuthAdapter {
   const allowedOrigins = options.csrf?.allowedOrigins ?? options.core.policy.passkey.origins;
   const csrfEnabled = options.csrf?.enabled ?? true;
+  const csrfAllowMissingOrigin = options.csrf?.allowMissingOrigin ?? false;
   const totpPendingCookie: CookieOptions = options.totpPendingCookie ?? {
     name: 'totp',
     path: '/',
@@ -79,6 +89,11 @@ export function createReactRouterAuthAdapter(
     maxAgeSeconds: 60 * 5
   };
   const twoFactorRedirectTo = options.twoFactorRedirectTo ?? '/two-factor';
+
+  const csrfCheck = (request: Request) => {
+    if (!csrfEnabled) return;
+    assertSameOrigin(request, allowedOrigins, { allowMissingOrigin: csrfAllowMissingOrigin });
+  };
 
   const validate = async (request: Request) => {
     const headers = new Headers();
@@ -118,7 +133,7 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     const token = getCookie(request, options.sessionCookie.name);
     if (token) await options.core.revokeSession({ sessionToken: token as unknown as SessionToken });
     const res = redirect(opts.redirectTo ?? '/login');
@@ -133,7 +148,7 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
       const form = await readForm(request);
       const identifier = String(form.get('identifier') ?? '');
@@ -167,7 +182,7 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
       const form = await readForm(request);
       const identifier = String(form.get('identifier') ?? '');
@@ -187,17 +202,16 @@ export function createReactRouterAuthAdapter(
   };
 
   const passkeyRegistrationStart = async (request: Request): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
-      const body = await readJson<{ userId: string; userName: string; userDisplayName?: string }>(
-        request
-      );
+      const { userId, headers } = await requireUser(request);
+      const body = await readJson<{ userName: string; userDisplayName?: string }>(request);
       const out = await options.core.startPasskeyRegistration({
-        userId: body.userId as any,
+        userId: userId as unknown as UserId,
         userName: body.userName,
         userDisplayName: body.userDisplayName
       });
-      return json(out);
+      return json(out, { headers });
     } catch (err) {
       return mapAuthError(err);
     }
@@ -207,25 +221,28 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
-      const body = await readJson<any>(request);
+      const { userId, headers } = await requireUser(request);
+      const body = await readJson<Omit<PasskeyRegistrationFinishInput, 'userId'>>(request);
       await options.core.finishPasskeyRegistration({
-        userId: body.userId as any,
-        challengeId: body.challengeId as any,
+        userId: userId as unknown as UserId,
+        challengeId: body.challengeId as unknown as ChallengeId,
         response: body.response
       });
-      return redirect(opts.redirectTo ?? '/');
+      return redirect(opts.redirectTo ?? '/', { headers });
     } catch (err) {
       return mapAuthError(err);
     }
   };
 
   const passkeyLoginStart = async (request: Request): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
       const body = await readJson<{ userId?: string }>(request);
-      const out = await options.core.startPasskeyLogin({ userId: body.userId as any });
+      const out = await options.core.startPasskeyLogin({
+        userId: body.userId ? (body.userId as unknown as UserId) : undefined
+      });
       return json(out);
     } catch (err) {
       return mapAuthError(err);
@@ -236,11 +253,11 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
-      const body = await readJson<any>(request);
+      const body = await readJson<PasskeyLoginFinishInput>(request);
       const out = await options.core.finishPasskeyLogin({
-        challengeId: body.challengeId as any,
+        challengeId: body.challengeId as unknown as ChallengeId,
         response: body.response
       });
       if ('twoFactorRequired' in out && out.twoFactorRequired) {
@@ -267,14 +284,15 @@ export function createReactRouterAuthAdapter(
   };
 
   const totpEnrollmentStart = async (request: Request): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
-      const body = await readJson<{ userId: string; accountName: string }>(request);
+      const { userId, headers } = await requireUser(request);
+      const body = await readJson<{ accountName: string }>(request);
       const out = await options.core.startTotpEnrollment({
-        userId: body.userId as any,
+        userId: userId as unknown as UserId,
         accountName: body.accountName
       });
-      return json(out);
+      return json(out, { headers });
     } catch (err) {
       return mapAuthError(err);
     }
@@ -284,11 +302,15 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
-      const body = await readJson<{ userId: string; code: string }>(request);
-      await options.core.finishTotpEnrollment({ userId: body.userId as any, code: body.code });
-      return redirect(opts.redirectTo ?? '/settings/security');
+      const { userId, headers } = await requireUser(request);
+      const body = await readJson<{ code: string }>(request);
+      await options.core.finishTotpEnrollment({
+        userId: userId as unknown as UserId,
+        code: body.code
+      });
+      return redirect(opts.redirectTo ?? '/settings/security', { headers });
     } catch (err) {
       return mapAuthError(err);
     }
@@ -298,7 +320,7 @@ export function createReactRouterAuthAdapter(
     request: Request,
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
-    if (csrfEnabled) assertSameOrigin(request, allowedOrigins);
+    csrfCheck(request);
     try {
       const pending = getCookie(request, totpPendingCookie.name);
       if (!pending)
@@ -308,7 +330,10 @@ export function createReactRouterAuthAdapter(
         });
       const form = await readForm(request);
       const code = String(form.get('code') ?? '');
-      const out = await options.core.verifyTotp({ pendingToken: pending as any, code });
+      const out = await options.core.verifyTotp({
+        pendingToken: pending as unknown as ChallengeId,
+        code
+      });
       const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
         'set-cookie',

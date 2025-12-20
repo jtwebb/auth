@@ -75,4 +75,18 @@ describe('pg adapter: createPgAuthStorage', () => {
 
     expect(queries.map(q => q.text)).toEqual(expect.arrayContaining(['BEGIN', 'COMMIT']));
   });
+
+  it('supports atomic TOTP replay mitigation via updateLastUsedStepIfGreater', async () => {
+    const { pool, queries } = createMockPool();
+    const storage = createPgAuthStorage({ pool });
+
+    const ok = await storage.totp.updateLastUsedStepIfGreater?.({
+      userId: 'u1' as unknown as UserId,
+      step: 123,
+      usedAt: new Date()
+    });
+    expect(ok).toBe(false);
+    expect(queries.some(q => q.text.includes('SET last_used_step'))).toBe(true);
+    expect(queries.some(q => q.text.includes('RETURNING 1'))).toBe(true);
+  });
 });

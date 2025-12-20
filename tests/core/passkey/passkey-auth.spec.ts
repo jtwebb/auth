@@ -179,6 +179,7 @@ describe('core/passkey/passkey-auth', () => {
 
   it('finishPasskeyLogin creates a session and updates the counter', async () => {
     const mem = makeMemoryStorage();
+    const events: any[] = [];
     // Seed credential
     mem.credentials.set('cred-1', {
       id: 'cred-1' as any,
@@ -191,6 +192,9 @@ describe('core/passkey/passkey-auth', () => {
 
     const core = createAuthCore({
       storage: mem.storage,
+      onAuthAttempt: e => {
+        events.push(e);
+      },
       policy: {
         passkey: {
           rpId: 'example.com',
@@ -211,5 +215,6 @@ describe('core/passkey/passkey-auth', () => {
     expect(finish.userId).toBe('u1');
     expect(mem.sessions.size).toBe(1);
     expect(mem.credentials.get('cred-1')?.counter).toBe(2);
+    expect(events.some(e => e.type === 'passkey_login_finish' && e.ok === true)).toBe(true);
   });
 });

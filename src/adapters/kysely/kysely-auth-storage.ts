@@ -161,7 +161,7 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
       async getEnabled(userId: UserId) {
         const r = await options.db
           .selectFrom(tables.totp)
-          .select(['encryptedSecret', 'enabledAt', 'lastUsedAt'])
+          .select(['encryptedSecret', 'enabledAt', 'lastUsedAt', 'lastUsedStep'])
           .where('userId', '=', userId as unknown as string)
           .where('enabledAt', 'is not', null)
           .executeTakeFirst();
@@ -169,7 +169,13 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
         return {
           encryptedSecret: toString(getField(r, 'encryptedSecret')),
           enabledAt: toDate(getField(r, 'enabledAt')),
-          lastUsedAt: toOptionalDate(getField(r, 'lastUsedAt'))
+          lastUsedAt: toOptionalDate(getField(r, 'lastUsedAt')),
+          lastUsedStep: (() => {
+            const v = getField(r, 'lastUsedStep');
+            if (v == null) return undefined;
+            const n = typeof v === 'number' ? v : Number(v);
+            return Number.isFinite(n) ? n : undefined;
+          })()
         };
       },
 
@@ -196,13 +202,16 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
             encryptedSecret: encryptedSecret,
             enabledAt: null,
             pendingCreatedAt: createdAt,
-            lastUsedAt: null
+            lastUsedAt: null,
+            lastUsedStep: null
           })
           .onConflict(oc =>
             oc.column('userId').doUpdateSet({
               encryptedSecret: encryptedSecret,
               enabledAt: null,
-              pendingCreatedAt: createdAt
+              pendingCreatedAt: createdAt,
+              lastUsedAt: null,
+              lastUsedStep: null
             })
           )
           .execute();
@@ -232,6 +241,20 @@ export function createKyselyAuthStorage(options: CreateKyselyAuthStorageOptions)
           .set({ lastUsedAt: lastUsedAt })
           .where('userId', '=', userId as unknown as string)
           .execute();
+      },
+
+      async updateLastUsedStepIfGreater({ userId, step, usedAt }) {
+        const r = await options.db
+          .updateTable(tables.totp)
+          .set({ lastUsedStep: step, lastUsedAt: usedAt })
+          .where('userId', '=', userId as unknown as string)
+          .where('enabledAt', 'is not', null)
+          .where(eb =>
+            eb.or([eb('lastUsedStep', 'is', null), eb('lastUsedStep', '<', step as unknown as any)])
+          )
+          .returning(['userId'])
+          .executeTakeFirst();
+        return Boolean(r);
       }
     },
 

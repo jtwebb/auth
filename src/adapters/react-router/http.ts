@@ -31,15 +31,59 @@ export async function readForm(request: Request): Promise<FormData> {
   return await request.formData();
 }
 
-export function assertSameOrigin(request: Request, allowedOrigins: readonly string[]): void {
+export type SameOriginOptions = {
+  /**
+   * If true, allow requests that omit both Origin and Referer (e.g. some non-browser clients).
+   * For browser-based auth endpoints, prefer false.
+   */
+  allowMissingOrigin?: boolean;
+  /**
+   * If true (default), fall back to validating Referer when Origin is missing.
+   */
+  allowRefererFallback?: boolean;
+};
+
+export function assertSameOrigin(
+  request: Request,
+  allowedOrigins: readonly string[],
+  options: SameOriginOptions = {}
+): void {
   // For state-changing actions, ensure request came from our own site(s).
-  // RR actions run server-side; Origin header is present for fetch/XHR and form POSTs in modern browsers.
+  // Origin is present for fetch/XHR and most form POSTs in modern browsers.
   const origin = request.headers.get('origin');
-  if (!origin) return; // allow non-browser clients; callers can enforce stricter policy
-  if (!allowedOrigins.includes(origin)) {
-    throw new AuthError('forbidden', 'CSRF protection: invalid origin', {
-      status: 403,
-      publicMessage: 'Forbidden'
-    });
+  if (origin) {
+    if (!allowedOrigins.includes(origin)) {
+      throw new AuthError('forbidden', 'CSRF protection: invalid origin', {
+        status: 403,
+        publicMessage: 'Forbidden'
+      });
+    }
+    return;
   }
+
+  const allowRefererFallback = options.allowRefererFallback ?? true;
+  if (allowRefererFallback) {
+    const referer = request.headers.get('referer');
+    if (referer) {
+      let refererOrigin: string | null = null;
+      try {
+        refererOrigin = new URL(referer).origin;
+      } catch {
+        refererOrigin = null;
+      }
+      if (!refererOrigin || !allowedOrigins.includes(refererOrigin)) {
+        throw new AuthError('forbidden', 'CSRF protection: invalid referer', {
+          status: 403,
+          publicMessage: 'Forbidden'
+        });
+      }
+      return;
+    }
+  }
+
+  if (options.allowMissingOrigin) return;
+  throw new AuthError('forbidden', 'CSRF protection: missing origin', {
+    status: 403,
+    publicMessage: 'Forbidden'
+  });
 }

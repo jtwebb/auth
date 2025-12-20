@@ -32,4 +32,26 @@ describe('adapters/react-router/cookies', () => {
     const header = serializeDeleteCookie('sid', { path: '/' });
     expect(header).toContain('Max-Age=0');
   });
+
+  it('enforces __Host- cookie prefix rules', () => {
+    expect(() => serializeCookie('__Host-sid', 'tok', { path: '/', secure: true })).not.toThrow();
+
+    expect(() => serializeCookie('__Host-sid', 'tok', { path: '/x', secure: true })).toThrow(
+      /__Host- cookies must have path="\/"/
+    );
+
+    expect(() =>
+      serializeCookie('__Host-sid', 'tok', { path: '/', secure: true, domain: 'example.com' })
+    ).toThrow(/__Host- cookies must not set a domain/);
+
+    expect(() => serializeCookie('__Host-sid', 'tok', { path: '/', secure: false })).toThrow(
+      /__Host- cookies must set secure=true/
+    );
+  });
+
+  it('enforces SameSite=None requires Secure', () => {
+    expect(() =>
+      serializeCookie('sid', 'tok', { path: '/', sameSite: 'none', secure: false })
+    ).toThrow(/SameSite=None cookies must set secure=true/);
+  });
 });

@@ -155,8 +155,9 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
           encrypted_secret: string;
           enabled_at: Date | string;
           last_used_at: Date | string | null;
+          last_used_step: number | null;
         }>(
-          `SELECT encrypted_secret, enabled_at, last_used_at
+          `SELECT encrypted_secret, enabled_at, last_used_at, last_used_step
            FROM ${tables.totp}
            WHERE user_id = $1 AND enabled_at IS NOT NULL`,
           [userId]
@@ -166,7 +167,8 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
         return {
           encryptedSecret: r.encrypted_secret,
           enabledAt: toDate(r.enabled_at),
-          lastUsedAt: toOptionalDate(r.last_used_at)
+          lastUsedAt: toOptionalDate(r.last_used_at),
+          lastUsedStep: r.last_used_step ?? undefined
         };
       },
 
@@ -187,10 +189,10 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
 
       async setPending(userId: UserId, encryptedSecret: string, createdAt: Date) {
         await options.pool.query(
-          `INSERT INTO ${tables.totp} (user_id, encrypted_secret, enabled_at, pending_created_at, last_used_at)
-           VALUES ($1, $2, NULL, $3, NULL)
+          `INSERT INTO ${tables.totp} (user_id, encrypted_secret, enabled_at, pending_created_at, last_used_at, last_used_step)
+           VALUES ($1, $2, NULL, $3, NULL, NULL)
            ON CONFLICT (user_id)
-           DO UPDATE SET encrypted_secret = EXCLUDED.encrypted_secret, enabled_at = NULL, pending_created_at = EXCLUDED.pending_created_at`,
+           DO UPDATE SET encrypted_secret = EXCLUDED.encrypted_secret, enabled_at = NULL, pending_created_at = EXCLUDED.pending_created_at, last_used_at = NULL, last_used_step = NULL`,
           [userId, encryptedSecret, createdAt]
         );
       },
@@ -214,6 +216,19 @@ export function createPgAuthStorage(options: CreatePgAuthStorageOptions): AuthSt
           userId,
           lastUsedAt
         ]);
+      },
+
+      async updateLastUsedStepIfGreater({ userId, step, usedAt }) {
+        const res = await options.pool.query(
+          `UPDATE ${tables.totp}
+           SET last_used_step = $2, last_used_at = $3
+           WHERE user_id = $1
+             AND enabled_at IS NOT NULL
+             AND (last_used_step IS NULL OR last_used_step < $2)
+           RETURNING 1`,
+          [userId, step, usedAt]
+        );
+        return res.rowCount === 1;
       }
     },
 

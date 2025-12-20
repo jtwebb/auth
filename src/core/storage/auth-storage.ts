@@ -97,9 +97,18 @@ export type AuthStorage = {
     /**
      * Return the enabled TOTP record, if enabled for this user.
      */
-    getEnabled(
-      userId: UserId
-    ): Promise<{ encryptedSecret: string; enabledAt: Date; lastUsedAt?: Date } | null>;
+    getEnabled(userId: UserId): Promise<{
+      encryptedSecret: string;
+      enabledAt: Date;
+      /**
+       * Timestamp of last accepted code (legacy; used for replay mitigation).
+       */
+      lastUsedAt?: Date;
+      /**
+       * Last accepted TOTP time-step (recommended). Enables atomic replay prevention.
+       */
+      lastUsedStep?: number;
+    } | null>;
     /**
      * Return the pending secret awaiting verification, if any.
      */
@@ -114,6 +123,19 @@ export type AuthStorage = {
     enableFromPending(userId: UserId, enabledAt: Date): Promise<void>;
     disable(userId: UserId, disabledAt: Date): Promise<void>;
     updateLastUsedAt(userId: UserId, lastUsedAt: Date): Promise<void>;
+    /**
+     * Atomically prevent replay: set lastUsedStep iff it is strictly less than the provided step.
+     *
+     * Should be implemented as a compare-and-swap (e.g. SQL: UPDATE ... WHERE lastUsedStep < :step)
+     * and return true only when the row was updated.
+     *
+     * If not implemented, core falls back to updateLastUsedAt() which is not race-free under concurrency.
+     */
+    updateLastUsedStepIfGreater?: (ctx: {
+      userId: UserId;
+      step: number;
+      usedAt: Date;
+    }) => Promise<boolean>;
   };
 
   sessions: {

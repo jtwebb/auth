@@ -50,6 +50,11 @@ export type SessionPolicy = {
    * Rotate tokens at most this often (sliding). Optional.
    */
   rotateEveryMs?: number;
+  /**
+   * Reduce write amplification: only "touch" lastSeenAt at most this often.
+   * Set to 0 to touch on every request.
+   */
+  touchEveryMs?: number;
 };
 
 export type ChallengePolicy = {
@@ -102,7 +107,8 @@ export const defaultAuthPolicy: AuthPolicy = {
   session: {
     absoluteTtlMs: 1000 * 60 * 60 * 24 * 30, // 30d
     idleTtlMs: 1000 * 60 * 60 * 24 * 7, // 7d
-    rotateEveryMs: 1000 * 60 * 60 * 24 // 24h
+    rotateEveryMs: 1000 * 60 * 60 * 24, // 24h
+    touchEveryMs: 1000 * 60 * 5 // 5m
   },
   challenge: {
     ttlMs: 1000 * 60 * 5 // 5m

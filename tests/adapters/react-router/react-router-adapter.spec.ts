@@ -89,4 +89,89 @@ describe('adapters/react-router/react-router-adapter', () => {
     expect(result.ok).toBe(true);
     expect(headers.get('set-cookie')).toMatch(/sid=/);
   });
+
+  it('requires Origin/Referer by default for state-changing actions (CSRF hardening)', async () => {
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      validateSession: async () => ({ ok: false, reason: 'missing' })
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' }
+    });
+
+    const req = new Request('https://example.com/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ identifier: 'a', password: 'b' })
+    });
+
+    await expect(adapter.actions.passwordLogin(req)).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403
+    });
+  });
+
+  it('derives userId from session (ignores client userId) for authenticated enrollment flows', async () => {
+    let finishUserId: string | null = null;
+
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      validateSession: async () => ({ ok: true, userId: 'u_session' }),
+      finishTotpEnrollment: async (input: any) => {
+        finishUserId = input.userId as any;
+        return { enabled: true };
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false }
+    });
+
+    const req = new Request('https://example.com/totp/finish', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'sid=abc'
+      },
+      body: JSON.stringify({ userId: 'u_attacker', code: '123456' })
+    });
+
+    const res = await adapter.actions.totpEnrollmentFinish(req);
+    expect(res.status).toBe(302);
+    expect(finishUserId).toBe('u_session');
+  });
+
+  it('propagates rotation headers from requireUser() into action responses', async () => {
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      validateSession: async () => ({
+        ok: true,
+        userId: 'u1',
+        rotatedSession: { sessionToken: 'newtok', sessionTokenHash: 'h' }
+      }),
+      startTotpEnrollment: async () => ({ userId: 'u1', secretBase32: 'S', otpauthUri: 'otpauth' })
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false }
+    });
+
+    const req = new Request('https://example.com/totp/start', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'sid=oldtok'
+      },
+      body: JSON.stringify({ accountName: 'acct' })
+    });
+
+    const res = await adapter.actions.totpEnrollmentStart(req);
+    expect(res.headers.get('set-cookie')).toMatch(/sid=newtok/);
+  });
 });

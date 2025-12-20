@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes as nodeRandomBytes } from 'node:crypto';
-import { AuthError } from './auth-error.js';
+import { AuthError, isAuthError } from './auth-error.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { defaultAuthPolicy } from './auth-policy.js';
 import type {
@@ -73,6 +73,18 @@ export type AuthAttemptEvent =
       userId?: string;
       ok: boolean;
       reason?: 'conflict';
+    }
+  | {
+      type: 'totp_verify';
+      userId?: string;
+      ok: boolean;
+      reason?: 'invalid' | 'expired' | 'not_enabled';
+    }
+  | {
+      type: 'passkey_login_finish';
+      userId?: string;
+      ok: boolean;
+      reason?: 'invalid' | 'expired';
     };
 
 export type CreateAuthCoreOptions = {
@@ -237,14 +249,31 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         randomBytes
       }),
     finishPasskeyLogin: async input =>
-      finishPasskeyLogin({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        createSessionToken,
-        randomBytes
-      }),
+      (async () => {
+        try {
+          const out = await finishPasskeyLogin({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now(),
+            createSessionToken,
+            randomBytes
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_login_finish',
+            userId: out.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_login_finish',
+            ok: false,
+            reason: isAuthError(err) && err.code === 'challenge_expired' ? 'expired' : 'invalid'
+          });
+          throw err;
+        }
+      })(),
     rotateBackupCodes: async input =>
       rotateBackupCodes({
         input,
@@ -309,14 +338,30 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     verifyTotp: async input => {
       if (!options.totpEncryptionKey)
         throw new AuthError('invalid_input', 'totpEncryptionKey is required');
-      return verifyTotp({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        totpEncryptionKey: options.totpEncryptionKey,
-        createSessionToken
-      });
+      try {
+        const out = await verifyTotp({
+          input,
+          storage: options.storage,
+          policy,
+          now: () => clock.now(),
+          totpEncryptionKey: options.totpEncryptionKey,
+          createSessionToken
+        });
+        await safeAttemptHook(options.onAuthAttempt, {
+          type: 'totp_verify',
+          userId: out.userId as unknown as string,
+          ok: true
+        });
+        return out;
+      } catch (err) {
+        let reason: 'invalid' | 'expired' | 'not_enabled' = 'invalid';
+        if (isAuthError(err)) {
+          if (err.code === 'challenge_expired') reason = 'expired';
+          if (err.code === 'totp_not_enabled') reason = 'not_enabled';
+        }
+        await safeAttemptHook(options.onAuthAttempt, { type: 'totp_verify', ok: false, reason });
+        throw err;
+      }
     }
   };
 }
@@ -328,6 +373,17 @@ function base64UrlEncode(bytes: Uint8Array): string {
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replaceAll('=', '');
+}
+
+async function safeAttemptHook(
+  hook: ((event: AuthAttemptEvent) => void | Promise<void>) | undefined,
+  event: AuthAttemptEvent
+): Promise<void> {
+  try {
+    await hook?.(event);
+  } catch {
+    // Never let audit/rate-limit hooks break authentication.
+  }
 }
 
 function mergePolicy(base: AuthPolicy, override?: Partial<AuthPolicy>): AuthPolicy {
@@ -373,6 +429,9 @@ function validatePolicy(policy: AuthPolicy): void {
   }
   if (policy.session.absoluteTtlMs < 1000 * 60) {
     throw new AuthError('invalid_input', 'policy.session.absoluteTtlMs must be at least 1 minute');
+  }
+  if (policy.session.touchEveryMs !== undefined && policy.session.touchEveryMs < 0) {
+    throw new AuthError('invalid_input', 'policy.session.touchEveryMs must be >= 0');
   }
   if (policy.challenge.ttlMs < 1000 * 30) {
     throw new AuthError('invalid_input', 'policy.challenge.ttlMs must be at least 30 seconds');

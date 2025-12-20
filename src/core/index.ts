@@ -5,6 +5,7 @@ export * from './backup-codes/backup-code-types.js';
 export * from './create-auth-core.js';
 export * from './passkey/passkey-types.js';
 export * from './password/password-hash.js';
+export * from './rate-limit.js';
 export * from './sessions/session-types.js';
 export * from './totp/totp-types.js';
 export * from './storage/auth-storage.js';

@@ -58,7 +58,7 @@ function makeMemoryStorage() {
 }
 
 describe('core/sessions', () => {
-  it('validates an existing session and touches lastSeenAt', async () => {
+  it('validates an existing session and only touches lastSeenAt every 5 minutes', async () => {
     const mem = makeMemoryStorage();
     const now = new Date('2025-01-01T00:00:00.000Z');
     const core = createAuthCore({
@@ -77,16 +77,28 @@ describe('core/sessions', () => {
       expiresAt: new Date(now.getTime() + 1000 * 60 * 60)
     });
 
-    const later = new Date(now.getTime() + 1000 * 60);
-    const res = await createAuthCore({
+    // 1 minute later: should NOT touch (default touchEveryMs=5m)
+    const later1m = new Date(now.getTime() + 1000 * 60);
+    const res1 = await createAuthCore({
       storage: mem.storage,
-      clock: { now: () => later }
+      clock: { now: () => later1m }
     }).validateSession({
       sessionToken: created.sessionToken
     });
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.userId).toBe('u1');
-    expect(mem.sessions.get(tokenHash as any)?.lastSeenAt?.getTime()).toBe(later.getTime());
+    expect(res1.ok).toBe(true);
+    if (res1.ok) expect(res1.userId).toBe('u1');
+    expect(mem.sessions.get(tokenHash as any)?.lastSeenAt?.getTime()).toBe(now.getTime());
+
+    // 6 minutes later: should touch
+    const later6m = new Date(now.getTime() + 1000 * 60 * 6);
+    const res2 = await createAuthCore({
+      storage: mem.storage,
+      clock: { now: () => later6m }
+    }).validateSession({
+      sessionToken: created.sessionToken
+    });
+    expect(res2.ok).toBe(true);
+    expect(mem.sessions.get(tokenHash as any)?.lastSeenAt?.getTime()).toBe(later6m.getTime());
   });
 
   it('rotates session when rotateEveryMs has elapsed', async () => {

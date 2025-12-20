@@ -46,7 +46,8 @@ export function serializeCookie(
 
   const parts: string[] = [];
   parts.push(`${name}=${enc}`);
-  parts.push(`Path=${options.path ?? '/'}`);
+  const path = options.path ?? '/';
+  parts.push(`Path=${path}`);
 
   if (options.domain) parts.push(`Domain=${options.domain}`);
   if (options.maxAgeSeconds !== undefined)
@@ -55,6 +56,8 @@ export function serializeCookie(
   const httpOnly = options.httpOnly ?? true;
   const secure = options.secure ?? true;
   const sameSite = options.sameSite ?? 'lax';
+
+  validateCookieOptions({ name, path, domain: options.domain, secure, sameSite });
 
   if (httpOnly) parts.push('HttpOnly');
   if (secure) parts.push('Secure');
@@ -92,5 +95,30 @@ function capitalizeSameSite(v: SameSite): string {
       return 'Strict';
     case 'none':
       return 'None';
+  }
+}
+
+function validateCookieOptions(ctx: {
+  name: string;
+  path: string;
+  domain?: string;
+  secure: boolean;
+  sameSite: SameSite;
+}): void {
+  // Prefix rules (RFC 6265bis / common browser behavior):
+  // - __Host-: must be Secure, Path=/, and MUST NOT include Domain attribute.
+  // - __Secure-: must be Secure.
+  if (ctx.name.startsWith('__Host-')) {
+    if (!ctx.secure) throw new AuthError('invalid_input', '__Host- cookies must set secure=true');
+    if (ctx.path !== '/')
+      throw new AuthError('invalid_input', '__Host- cookies must have path="/"');
+    if (ctx.domain) throw new AuthError('invalid_input', '__Host- cookies must not set a domain');
+  }
+  if (ctx.name.startsWith('__Secure-')) {
+    if (!ctx.secure) throw new AuthError('invalid_input', '__Secure- cookies must set secure=true');
+  }
+  // SameSite=None requires Secure in modern browsers.
+  if (ctx.sameSite === 'none' && !ctx.secure) {
+    throw new AuthError('invalid_input', 'SameSite=None cookies must set secure=true');
   }
 }

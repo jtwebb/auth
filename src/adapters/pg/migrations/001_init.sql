@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS auth_totp (
   encrypted_secret text NOT NULL,
   enabled_at timestamptz NULL,
   pending_created_at timestamptz NULL,
-  last_used_at timestamptz NULL
+  last_used_at timestamptz NULL,
+  last_used_step integer NULL
 );
 
 

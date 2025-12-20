@@ -72,9 +72,10 @@ export async function finishTotpEnrollment(ctx: {
     digits: ctx.policy.totp.digits,
     periodSeconds: ctx.policy.totp.periodSeconds,
     allowedSkewSteps: ctx.policy.totp.allowedSkewSteps,
-    lastUsedAt: undefined
+    lastUsedAt: undefined,
+    lastUsedStep: undefined
   });
-  if (!ok) {
+  if (ok === null) {
     throw new AuthError('totp_invalid', 'Invalid TOTP code', {
       publicMessage: 'Invalid code',
       status: 401
@@ -82,7 +83,16 @@ export async function finishTotpEnrollment(ctx: {
   }
 
   await ctx.storage.totp.enableFromPending(ctx.input.userId, now);
-  await ctx.storage.totp.updateLastUsedAt(ctx.input.userId, now);
+  const updated =
+    (await ctx.storage.totp.updateLastUsedStepIfGreater?.({
+      userId: ctx.input.userId,
+      step: ok,
+      usedAt: now
+    })) ?? null;
+  if (updated === null) {
+    // Best-effort fallback (not race-free).
+    await ctx.storage.totp.updateLastUsedAt(ctx.input.userId, now);
+  }
   return { enabled: true };
 }
 
@@ -135,20 +145,34 @@ export async function verifyTotp(ctx: {
     encryptedSecret: totp.encryptedSecret,
     key: ctx.totpEncryptionKey
   });
-  const ok = verifyTotpCode({
+  const step = verifyTotpCode({
     secretBase32,
     code: ctx.input.code,
     now,
     digits: ctx.policy.totp.digits,
     periodSeconds: ctx.policy.totp.periodSeconds,
     allowedSkewSteps: ctx.policy.totp.allowedSkewSteps,
-    lastUsedAt: totp.lastUsedAt
+    lastUsedAt: totp.lastUsedAt,
+    lastUsedStep: totp.lastUsedStep
   });
-  if (!ok)
+  if (step === null)
     throw new AuthError('totp_invalid', 'Invalid TOTP code', { publicMessage: 'Invalid code' });
 
-  // Replay mitigation: update lastUsedAt
-  await ctx.storage.totp.updateLastUsedAt(pending.userId, now);
+  // Replay mitigation: prefer atomic step-based update if storage supports it.
+  const atomicUpdated =
+    (await ctx.storage.totp.updateLastUsedStepIfGreater?.({
+      userId: pending.userId,
+      step,
+      usedAt: now
+    })) ?? null;
+  if (atomicUpdated === false) {
+    // Another request already used this step (concurrent replay).
+    throw new AuthError('totp_invalid', 'Invalid TOTP code', { publicMessage: 'Invalid code' });
+  }
+  if (atomicUpdated === null) {
+    // Best-effort fallback (not race-free).
+    await ctx.storage.totp.updateLastUsedAt(pending.userId, now);
+  }
 
   const session = ctx.createSessionToken();
   const expiresAt = new Date(now.getTime() + ctx.policy.session.absoluteTtlMs);
@@ -246,20 +270,27 @@ function verifyTotpCode(ctx: {
   periodSeconds: number;
   allowedSkewSteps: number;
   lastUsedAt?: Date;
-}): boolean {
+  lastUsedStep?: number;
+}): number | null {
   const code = ctx.code.trim();
-  if (!/^\d{6,8}$/.test(code)) return false;
+  if (!/^\d{6,8}$/.test(code)) return null;
 
   const secret = base32Decode(ctx.secretBase32);
   const stepNow = totpStep(ctx.now, ctx.periodSeconds);
-  const lastStep = ctx.lastUsedAt ? totpStep(ctx.lastUsedAt, ctx.periodSeconds) : null;
+  const lastStepFromAt = ctx.lastUsedAt ? totpStep(ctx.lastUsedAt, ctx.periodSeconds) : null;
+  const lastStep =
+    typeof ctx.lastUsedStep === 'number'
+      ? ctx.lastUsedStep
+      : lastStepFromAt === null
+        ? null
+        : lastStepFromAt;
 
   for (let delta = -ctx.allowedSkewSteps; delta <= ctx.allowedSkewSteps; delta++) {
     const step = stepNow + delta;
     if (lastStep !== null && step <= lastStep) continue; // replay mitigation
-    if (hotp(secret, step, ctx.digits) === code) return true;
+    if (hotp(secret, step, ctx.digits) === code) return step;
   }
-  return false;
+  return null;
 }
 
 function randomId(randomBytesFn: RandomBytesFn, size: number): string {

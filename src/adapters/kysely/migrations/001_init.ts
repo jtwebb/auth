@@ -127,6 +127,7 @@ export async function up(db: Kysely<Record<string, Record<string, unknown>>>): P
     .addColumn('enabled_at', 'timestamptz')
     .addColumn('pending_created_at', 'timestamptz')
     .addColumn('last_used_at', 'timestamptz')
+    .addColumn('last_used_step', 'integer')
     .execute();
 }
 

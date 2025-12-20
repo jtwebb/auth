@@ -575,6 +575,36 @@ const core = createAuthCore({
 });
 ```
 
+### TOTP encryption key rotation (recommended)
+
+`totpEncryptionKey` supports two modes:
+
+- **Legacy (single key)**: pass a string/bytes. Existing ciphertexts are stored in a v1 format (no key id).
+- **Key ring (rotatable)**: pass `{ primaryKeyId, keys }`. New ciphertexts are stored in a v2 format
+  with an embedded key id, and decryption can use **multiple keys** (to support rotation).
+
+Example key ring:
+
+```ts
+const core = createAuthCore({
+  storage,
+  totpEncryptionKey: {
+    // New enrollments will encrypt using this key id (v2.<kid>...)
+    primaryKeyId: 'k2',
+    // Keep old keys for decryption of existing secrets during rotation
+    keys: {
+      k1: process.env.TOTP_ENCRYPTION_KEY_OLD!,
+      k2: process.env.TOTP_ENCRYPTION_KEY_CURRENT!
+    }
+  }
+});
+```
+
+Rotation procedure:
+
+- **Deploy** with `{ primaryKeyId: "new", keys: { old, new } }`
+- After all old secrets have been naturally re-enrolled/rotated (or you migrate them), **remove** the old key
+
 ## React Router v7 adapter usage
 
 This adapter intentionally **does not import react-router packages**. It operates on standard `Request`/`Response`
@@ -658,3 +688,45 @@ await passkeys.login(); // passkey-first (discoverable)
 ## Security notes (must read)
 
 See `SECURITY.md` and `docs/production-hardening.md`.
+
+## Rate limiting (recommended)
+
+This library exposes an `onAuthAttempt` hook for **logging/auditing/rate-limit tracking**.
+
+Important: `onAuthAttempt` is intentionally **non-blocking** (errors are swallowed), so to _enforce_
+rate limits you should also do a pre-check in your adapter/route handler.
+
+This repo includes a small in-memory helper (`InMemoryRateLimiter`) suitable for development and
+single-instance deployments.
+
+Example:
+
+```ts
+import { createAuthCore, InMemoryRateLimiter, createOnAuthAttemptRateLimiter } from '@jtwebb/auth';
+
+const limiter = new InMemoryRateLimiter();
+const rl = createOnAuthAttemptRateLimiter({
+  limiter,
+  // 10 failures per 15 minutes
+  rule: { windowMs: 15 * 60_000, max: 10 },
+  // Count failures per identifier (you can add per-IP keys in your adapter where you have request context).
+  keys: e => (e.type === 'password_login' && !e.ok ? [`login:id:${e.identifier}`] : [])
+});
+
+const core = createAuthCore({
+  storage,
+  onAuthAttempt: rl.onAuthAttempt
+});
+
+// In your route handler/action (where you have request context), enforce BEFORE doing auth work:
+rl.assertAllowed([`login:id:${identifier}`]);
+```
+
+Production guidance:
+
+- Use a shared store (Redis) with atomic increments (multi-instance safe)
+- Key on both **client id** (IP/device) and **account/identifier**
+- Prefer counting **failures only**, and consider separate limits for:
+  - password login
+  - TOTP verify
+  - passkey finish
