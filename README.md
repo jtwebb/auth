@@ -774,6 +774,14 @@ This library exposes an `onAuthAttempt` hook for **logging/auditing/rate-limit t
 Important: `onAuthAttempt` is intentionally **non-blocking** (errors are swallowed), so to _enforce_
 rate limits you should also do a pre-check in your adapter/route handler.
 
+Audit/event coverage (safe payloads; no secrets) includes:
+
+- `password_register`, `password_login`
+- `passkey_register_start`, `passkey_register_finish`, `passkey_login_finish`
+- `totp_enroll_start`, `totp_enroll_finish`, `totp_disable`, `totp_verify`
+- `backup_codes_rotate`, `backup_code_redeem`
+- `logout`, `sessions_revoke_all`, `sessions_revoke_other`
+
 This repo includes a small in-memory helper (`InMemoryRateLimiter`) suitable for development and
 single-instance deployments.
 

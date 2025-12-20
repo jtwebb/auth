@@ -78,10 +78,64 @@ export type AuthAttemptEvent =
       reason?: 'conflict';
     }
   | {
+      type: 'logout';
+      userId?: string;
+      ok: boolean;
+    }
+  | {
+      type: 'sessions_revoke_all';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'sessions_revoke_other';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'passkey_register_start';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'passkey_register_finish';
+      userId: string;
+      credentialId?: string;
+      ok: boolean;
+      reason?: 'invalid' | 'expired';
+    }
+  | {
       type: 'totp_verify';
       userId?: string;
       ok: boolean;
       reason?: 'invalid' | 'expired' | 'not_enabled';
+    }
+  | {
+      type: 'totp_enroll_start';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'totp_enroll_finish';
+      userId: string;
+      ok: boolean;
+      reason?: 'invalid' | 'already_enabled' | 'no_pending';
+    }
+  | {
+      type: 'totp_disable';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'backup_codes_rotate';
+      userId: string;
+      ok: boolean;
+    }
+  | {
+      type: 'backup_code_redeem';
+      userId: string;
+      ok: boolean;
+      reason?: 'invalid';
     }
   | {
       type: 'passkey_login_finish';
@@ -189,6 +243,7 @@ export type AuthCore = {
   }): Promise<{ ok: true; userId: UserId }>;
   startTotpEnrollment(input: StartTotpEnrollmentInput): Promise<StartTotpEnrollmentResult>;
   finishTotpEnrollment(input: FinishTotpEnrollmentInput): Promise<FinishTotpEnrollmentResult>;
+  disableTotp(input: { userId: UserId }): Promise<{ ok: true }>;
   verifyTotp(input: VerifyTotpInput): Promise<VerifyTotpResult>;
 };
 
@@ -370,20 +425,56 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         onAuthAttempt: options.onAuthAttempt
       }),
     startPasskeyRegistration: async input =>
-      startPasskeyRegistration({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        randomBytes
-      }),
+      (async () => {
+        try {
+          const out = await startPasskeyRegistration({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now(),
+            randomBytes
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_register_start',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_register_start',
+            userId: input.userId as unknown as string,
+            ok: false
+          });
+          throw err;
+        }
+      })(),
     finishPasskeyRegistration: async input =>
-      finishPasskeyRegistration({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now()
-      }),
+      (async () => {
+        try {
+          const out = await finishPasskeyRegistration({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now()
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_register_finish',
+            userId: input.userId as unknown as string,
+            credentialId: out.credentialId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'passkey_register_finish',
+            userId: input.userId as unknown as string,
+            ok: false,
+            reason: isAuthError(err) && err.code === 'challenge_expired' ? 'expired' : 'invalid'
+          });
+          throw err;
+        }
+      })(),
     startPasskeyLogin: async input =>
       startPasskeyLogin({
         input,
@@ -420,21 +511,56 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         }
       })(),
     rotateBackupCodes: async input =>
-      rotateBackupCodes({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        randomBytes,
-        backupCodeHashSecret: options.backupCodeHashSecret
-      }),
+      (async () => {
+        try {
+          const out = await rotateBackupCodes({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now(),
+            randomBytes,
+            backupCodeHashSecret: options.backupCodeHashSecret
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'backup_codes_rotate',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'backup_codes_rotate',
+            userId: input.userId as unknown as string,
+            ok: false
+          });
+          throw err;
+        }
+      })(),
     redeemBackupCode: async input =>
-      redeemBackupCode({
-        input,
-        storage: options.storage,
-        now: () => clock.now(),
-        backupCodeHashSecret: options.backupCodeHashSecret
-      }),
+      (async () => {
+        try {
+          const out = await redeemBackupCode({
+            input,
+            storage: options.storage,
+            now: () => clock.now(),
+            backupCodeHashSecret: options.backupCodeHashSecret
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'backup_code_redeem',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'backup_code_redeem',
+            userId: input.userId as unknown as string,
+            ok: false,
+            reason: 'invalid'
+          });
+          throw err;
+        }
+      })(),
     validateSession: async input =>
       validateSession({
         input,
@@ -446,18 +572,50 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         createSessionToken
       }),
     revokeSession: async input =>
-      revokeSession({
-        input,
-        storage: options.storage,
-        now: () => clock.now(),
-        hashSessionToken
-      }),
+      (async () => {
+        try {
+          const token = input.sessionToken as unknown as string;
+          let userId: string | undefined = undefined;
+          if (typeof token === 'string' && token.length >= 16) {
+            const h = hashSessionToken(input.sessionToken);
+            const s = await options.storage.sessions.getSessionByTokenHash(h);
+            userId = s?.userId as unknown as string | undefined;
+          }
+          const out = await revokeSession({
+            input,
+            storage: options.storage,
+            now: () => clock.now(),
+            hashSessionToken
+          });
+          await safeAttemptHook(options.onAuthAttempt, { type: 'logout', userId, ok: true });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, { type: 'logout', ok: false });
+          throw err;
+        }
+      })(),
     revokeAllUserSessions: async userId =>
-      revokeAllUserSessions({
-        userId,
-        storage: options.storage,
-        now: () => clock.now()
-      }),
+      (async () => {
+        try {
+          await revokeAllUserSessions({
+            userId,
+            storage: options.storage,
+            now: () => clock.now()
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'sessions_revoke_all',
+            userId: userId as unknown as string,
+            ok: true
+          });
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'sessions_revoke_all',
+            userId: userId as unknown as string,
+            ok: false
+          });
+          throw err;
+        }
+      })(),
     listSessions: async userId => {
       const fn = options.storage.sessions.listSessionsForUser;
       if (!fn)
@@ -467,42 +625,106 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     revokeSessionById: async input => {
       await options.storage.sessions.revokeSession(input.sessionId, clock.now());
     },
-    revokeOtherSessions: async input => {
-      const fn = options.storage.sessions.revokeAllUserSessionsExceptTokenHash;
-      if (!fn)
-        throw new AuthError(
-          'not_implemented',
-          'sessions.revokeAllUserSessionsExceptTokenHash not implemented'
-        );
-      const currentHash = hashSessionToken(input.currentSessionToken);
-      await fn(input.userId, currentHash, clock.now());
-    },
+    revokeOtherSessions: async input =>
+      (async () => {
+        try {
+          const fn = options.storage.sessions.revokeAllUserSessionsExceptTokenHash;
+          if (!fn)
+            throw new AuthError(
+              'not_implemented',
+              'sessions.revokeAllUserSessionsExceptTokenHash not implemented'
+            );
+          const currentHash = hashSessionToken(input.currentSessionToken);
+          await fn(input.userId, currentHash, clock.now());
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'sessions_revoke_other',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'sessions_revoke_other',
+            userId: input.userId as unknown as string,
+            ok: false
+          });
+          throw err;
+        }
+      })(),
     createPasswordResetToken: async input => createPasswordResetToken(input.userId),
     startPasswordReset: async input => startPasswordReset(input.identifier),
     resetPasswordWithToken: async input => resetPasswordWithToken(input),
-    startTotpEnrollment: async input => {
-      if (!options.totpEncryptionKey)
-        throw new AuthError('invalid_input', 'totpEncryptionKey is required');
-      return startTotpEnrollment({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        totpEncryptionKey: options.totpEncryptionKey,
-        randomBytes
-      });
-    },
-    finishTotpEnrollment: async input => {
-      if (!options.totpEncryptionKey)
-        throw new AuthError('invalid_input', 'totpEncryptionKey is required');
-      return finishTotpEnrollment({
-        input,
-        storage: options.storage,
-        policy,
-        now: () => clock.now(),
-        totpEncryptionKey: options.totpEncryptionKey
-      });
-    },
+    startTotpEnrollment: async input =>
+      (async () => {
+        try {
+          if (!options.totpEncryptionKey)
+            throw new AuthError('invalid_input', 'totpEncryptionKey is required');
+          const out = await startTotpEnrollment({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now(),
+            totpEncryptionKey: options.totpEncryptionKey,
+            randomBytes
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'totp_enroll_start',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'totp_enroll_start',
+            userId: input.userId as unknown as string,
+            ok: false
+          });
+          throw err;
+        }
+      })(),
+    finishTotpEnrollment: async input =>
+      (async () => {
+        try {
+          if (!options.totpEncryptionKey)
+            throw new AuthError('invalid_input', 'totpEncryptionKey is required');
+          const out = await finishTotpEnrollment({
+            input,
+            storage: options.storage,
+            policy,
+            now: () => clock.now(),
+            totpEncryptionKey: options.totpEncryptionKey
+          });
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'totp_enroll_finish',
+            userId: input.userId as unknown as string,
+            ok: true
+          });
+          return out;
+        } catch (err) {
+          let reason: 'invalid' | 'already_enabled' | 'no_pending' = 'invalid';
+          if (isAuthError(err)) {
+            if (err.code === 'conflict') reason = 'already_enabled';
+            if (err.code === 'not_found') reason = 'no_pending';
+          }
+          await safeAttemptHook(options.onAuthAttempt, {
+            type: 'totp_enroll_finish',
+            userId: input.userId as unknown as string,
+            ok: false,
+            reason
+          });
+          throw err;
+        }
+      })(),
+    disableTotp: async input =>
+      (async () => {
+        const now = clock.now();
+        await options.storage.totp.disable(input.userId, now);
+        await safeAttemptHook(options.onAuthAttempt, {
+          type: 'totp_disable',
+          userId: input.userId as unknown as string,
+          ok: true
+        });
+        return { ok: true as const };
+      })(),
     verifyTotp: async input => {
       if (!options.totpEncryptionKey)
         throw new AuthError('invalid_input', 'totpEncryptionKey is required');
