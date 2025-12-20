@@ -88,6 +88,14 @@ export type ReactRouterAuthAdapterOptions = {
      */
     limiter?: Pick<InMemoryRateLimiter, 'consume'>;
     /**
+     * If true, allow deriving a client id from proxy headers like `cf-connecting-ip` and
+     * `x-forwarded-for`. Only enable this if you are behind a trusted proxy/CDN that overwrites
+     * these headers; otherwise clients can spoof them and bypass per-client limits.
+     *
+     * Defaults to false.
+     */
+    trustProxyHeaders?: boolean;
+    /**
      * Extract a client identifier (e.g. IP) from the request for per-client limits.
      * If it returns null/empty, per-client limits are skipped.
      */
@@ -111,6 +119,14 @@ export type ReactRouterAuthAdapterOptions = {
 export type ReactRouterAuthRateLimitRules = {
   passwordLoginPerIdentifier: RateLimitRule;
   passwordLoginPerClient: RateLimitRule;
+  passwordRegisterPerIdentifier: RateLimitRule;
+  passwordRegisterPerClient: RateLimitRule;
+  passwordResetStartPerIdentifier: RateLimitRule;
+  passwordResetStartPerClient: RateLimitRule;
+  passwordResetFinishPerClient: RateLimitRule;
+  passkeyLoginStartPerClient: RateLimitRule;
+  passkeyRegisterStartPerClient: RateLimitRule;
+  passkeyRegisterStartPerUser: RateLimitRule;
   totpVerifyPerPending: RateLimitRule;
   totpVerifyPerClient: RateLimitRule;
   passkeyFinishPerChallenge: RateLimitRule;
@@ -120,6 +136,14 @@ export type ReactRouterAuthRateLimitRules = {
 export type ReactRouterAuthProgressiveDelayRules = {
   passwordLoginPerIdentifier: ProgressiveDelayRule;
   passwordLoginPerClient: ProgressiveDelayRule;
+  passwordRegisterPerIdentifier: ProgressiveDelayRule;
+  passwordRegisterPerClient: ProgressiveDelayRule;
+  passwordResetStartPerIdentifier: ProgressiveDelayRule;
+  passwordResetStartPerClient: ProgressiveDelayRule;
+  passwordResetFinishPerClient: ProgressiveDelayRule;
+  passkeyLoginStartPerClient: ProgressiveDelayRule;
+  passkeyRegisterStartPerClient: ProgressiveDelayRule;
+  passkeyRegisterStartPerUser: ProgressiveDelayRule;
   totpVerifyPerPending: ProgressiveDelayRule;
   totpVerifyPerClient: ProgressiveDelayRule;
   passkeyFinishPerChallenge: ProgressiveDelayRule;
@@ -162,6 +186,8 @@ export type ReactRouterAuthAdapter = {
   actions: {
     passwordLogin(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
     passwordRegister(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
+    passwordResetStart(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
+    passwordResetFinish(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
 
     passkeyRegistrationStart(request: Request): Promise<Response>;
     passkeyRegistrationFinish(request: Request, opts?: { redirectTo?: string }): Promise<Response>;
@@ -208,21 +234,34 @@ export function createReactRouterAuthAdapter(
   const rateLimitEnabled = options.rateLimit?.enabled ?? defaultRateLimitEnabled;
   const limiter: Pick<InMemoryRateLimiter, 'consume'> =
     options.rateLimit?.limiter ?? new InMemoryRateLimiter();
+  const trustProxyHeaders = options.rateLimit?.trustProxyHeaders ?? false;
+  const proxyHeaderClientId = (request: Request) => {
+    const cf = request.headers.get('cf-connecting-ip');
+    if (cf) return cf.trim();
+    const xff = request.headers.get('x-forwarded-for');
+    if (xff) return xff.split(',')[0]?.trim() ?? null;
+    const xri = request.headers.get('x-real-ip');
+    if (xri) return xri.trim();
+    return null;
+  };
   const getClientId =
     options.rateLimit?.getClientId ??
     ((request: Request) => {
-      const cf = request.headers.get('cf-connecting-ip');
-      if (cf) return cf.trim();
-      const xff = request.headers.get('x-forwarded-for');
-      if (xff) return xff.split(',')[0]?.trim() ?? null;
-      const xri = request.headers.get('x-real-ip');
-      if (xri) return xri.trim();
-      return null;
+      if (!trustProxyHeaders) return null;
+      return proxyHeaderClientId(request);
     });
   const rules: ReactRouterAuthRateLimitRules = {
     // Defaults are intentionally conservative and intended to be safe across many apps.
     passwordLoginPerIdentifier: { windowMs: 15 * 60_000, max: 10 },
     passwordLoginPerClient: { windowMs: 15 * 60_000, max: 100 },
+    passwordRegisterPerIdentifier: { windowMs: 15 * 60_000, max: 5 },
+    passwordRegisterPerClient: { windowMs: 15 * 60_000, max: 50 },
+    passwordResetStartPerIdentifier: { windowMs: 5 * 60_000, max: 5 },
+    passwordResetStartPerClient: { windowMs: 5 * 60_000, max: 50 },
+    passwordResetFinishPerClient: { windowMs: 5 * 60_000, max: 20 },
+    passkeyLoginStartPerClient: { windowMs: 5 * 60_000, max: 60 },
+    passkeyRegisterStartPerClient: { windowMs: 5 * 60_000, max: 30 },
+    passkeyRegisterStartPerUser: { windowMs: 5 * 60_000, max: 10 },
     totpVerifyPerPending: { windowMs: 5 * 60_000, max: 10 },
     totpVerifyPerClient: { windowMs: 5 * 60_000, max: 50 },
     passkeyFinishPerChallenge: { windowMs: 5 * 60_000, max: 20 },
@@ -266,6 +305,78 @@ export function createReactRouterAuthAdapter(
       maxDelayMs: 60_000,
       lockoutAfterFailures: 50,
       lockoutMs: 15 * 60_000
+    },
+    passwordRegisterPerIdentifier: {
+      failureWindowMs: 15 * 60_000,
+      startAfterFailures: 2,
+      baseDelayMs: 1_000,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 10,
+      lockoutMs: 15 * 60_000
+    },
+    passwordRegisterPerClient: {
+      failureWindowMs: 15 * 60_000,
+      startAfterFailures: 5,
+      baseDelayMs: 500,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 25,
+      lockoutMs: 15 * 60_000
+    },
+    passwordResetStartPerIdentifier: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 2,
+      baseDelayMs: 1_000,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 10,
+      lockoutMs: 10 * 60_000
+    },
+    passwordResetStartPerClient: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 5,
+      baseDelayMs: 500,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 50,
+      lockoutMs: 10 * 60_000
+    },
+    passwordResetFinishPerClient: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 3,
+      baseDelayMs: 500,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 25,
+      lockoutMs: 10 * 60_000
+    },
+    passkeyLoginStartPerClient: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 20,
+      baseDelayMs: 250,
+      factor: 2,
+      maxDelayMs: 10_000,
+      lockoutAfterFailures: 200,
+      lockoutMs: 5 * 60_000
+    },
+    passkeyRegisterStartPerClient: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 10,
+      baseDelayMs: 500,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 50,
+      lockoutMs: 5 * 60_000
+    },
+    passkeyRegisterStartPerUser: {
+      failureWindowMs: 5 * 60_000,
+      startAfterFailures: 3,
+      baseDelayMs: 1_000,
+      factor: 2,
+      maxDelayMs: 30_000,
+      lockoutAfterFailures: 10,
+      lockoutMs: 5 * 60_000
     },
     totpVerifyPerPending: {
       failureWindowMs: 5 * 60_000,
@@ -509,16 +620,29 @@ export function createReactRouterAuthAdapter(
     opts: { redirectTo?: string } = {}
   ): Promise<Response> => {
     csrfCheckOrigin(request);
+    let idKey: string | null = null;
+    let clientKey: string | null = null;
     try {
       const form = await readForm(request);
       assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
       const identifier = String(form.get('identifier') ?? '');
       const password = String(form.get('password') ?? '');
+      idKey = `password_register:id:${identifier}`;
+      const clientId = getClientId(request);
+      clientKey = clientId ? `password_register:client:${clientId}` : null;
+
+      enforceProgressiveDelay(idKey);
+      if (clientKey) enforceProgressiveDelay(clientKey);
+
+      enforceRateLimit(idKey, rules.passwordRegisterPerIdentifier);
+      if (clientKey) enforceRateLimit(clientKey, rules.passwordRegisterPerClient);
       const { session } = await options.core.registerPassword({
         identifier,
         password,
         sessionContext: sessionContextFromRequest(request)
       });
+      recordSuccess(idKey);
+      if (clientKey) recordSuccess(clientKey);
       const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
         'set-cookie',
@@ -528,6 +652,74 @@ export function createReactRouterAuthAdapter(
       );
       return res;
     } catch (err) {
+      if (isAuthError(err) && err.code === 'conflict') {
+        if (idKey) recordFailure(idKey, progressiveRules.passwordRegisterPerIdentifier);
+        if (clientKey) recordFailure(clientKey, progressiveRules.passwordRegisterPerClient);
+      }
+      return mapAuthError(err);
+    }
+  };
+
+  const passwordResetStart = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
+    csrfCheckOrigin(request);
+    let idKey: string | null = null;
+    let clientKey: string | null = null;
+    try {
+      const form = await readForm(request);
+      assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
+      const identifier = String(form.get('identifier') ?? '');
+      idKey = `password_reset_start:id:${identifier}`;
+      const clientId = getClientId(request);
+      clientKey = clientId ? `password_reset_start:client:${clientId}` : null;
+
+      // For reset-start, treat repeated requests as abuse/spam: apply progressive delays too.
+      enforceProgressiveDelay(idKey);
+      if (clientKey) enforceProgressiveDelay(clientKey);
+      enforceRateLimit(idKey, rules.passwordResetStartPerIdentifier);
+      if (clientKey) enforceRateLimit(clientKey, rules.passwordResetStartPerClient);
+
+      await options.core.startPasswordReset({ identifier });
+
+      // Always record a "failure" to ramp backoff for repeated attempts (enumeration/spam hardening).
+      recordFailure(idKey, progressiveRules.passwordResetStartPerIdentifier);
+      if (clientKey) recordFailure(clientKey, progressiveRules.passwordResetStartPerClient);
+
+      if (opts.redirectTo) return redirect(opts.redirectTo);
+      return json({ ok: true });
+    } catch (err) {
+      return mapAuthError(err);
+    }
+  };
+
+  const passwordResetFinish = async (
+    request: Request,
+    opts: { redirectTo?: string } = {}
+  ): Promise<Response> => {
+    csrfCheckOrigin(request);
+    let clientKey: string | null = null;
+    try {
+      const form = await readForm(request);
+      assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
+      const token = String(form.get('token') ?? '');
+      const newPassword = String(form.get('newPassword') ?? '');
+      const clientId = getClientId(request);
+      clientKey = clientId ? `password_reset_finish:client:${clientId}` : null;
+
+      if (clientKey) enforceProgressiveDelay(clientKey);
+      if (clientKey) enforceRateLimit(clientKey, rules.passwordResetFinishPerClient);
+
+      await options.core.resetPasswordWithToken({ token: token as any, newPassword });
+      if (clientKey) recordSuccess(clientKey);
+
+      if (opts.redirectTo) return redirect(opts.redirectTo);
+      return json({ ok: true });
+    } catch (err) {
+      if (isAuthError(err) && err.code === 'password_reset_invalid') {
+        if (clientKey) recordFailure(clientKey, progressiveRules.passwordResetFinishPerClient);
+      }
       return mapAuthError(err);
     }
   };
@@ -542,6 +734,13 @@ export function createReactRouterAuthAdapter(
         csrfToken?: string;
       }>(request);
       assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      const clientId = getClientId(request);
+      const userKey = `passkey_register_start:user:${userId}`;
+      const clientKey = clientId ? `passkey_register_start:client:${clientId}` : null;
+      enforceProgressiveDelay(userKey);
+      if (clientKey) enforceProgressiveDelay(clientKey);
+      enforceRateLimit(userKey, rules.passkeyRegisterStartPerUser);
+      if (clientKey) enforceRateLimit(clientKey, rules.passkeyRegisterStartPerClient);
       const out = await options.core.startPasskeyRegistration({
         userId: userId as unknown as UserId,
         userName: body.userName,
@@ -580,6 +779,12 @@ export function createReactRouterAuthAdapter(
     try {
       const body = await readJson<{ userId?: string; csrfToken?: string }>(request);
       assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      const clientId = getClientId(request);
+      const clientKey = clientId ? `passkey_login_start:client:${clientId}` : null;
+      if (clientKey) {
+        enforceProgressiveDelay(clientKey);
+        enforceRateLimit(clientKey, rules.passkeyLoginStartPerClient);
+      }
       const out = await options.core.startPasskeyLogin({
         userId: body.userId ? (body.userId as unknown as UserId) : undefined
       });
@@ -752,6 +957,8 @@ export function createReactRouterAuthAdapter(
     actions: {
       passwordLogin,
       passwordRegister,
+      passwordResetStart,
+      passwordResetFinish,
       passkeyRegistrationStart,
       passkeyRegistrationFinish,
       passkeyLoginStart,

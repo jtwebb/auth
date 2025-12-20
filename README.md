@@ -652,6 +652,8 @@ export async function loader({ request }: { request: Request }) {
 
 - Password login: `auth.actions.passwordLogin(request, { redirectTo: "/" })`
 - Password register: `auth.actions.passwordRegister(request, { redirectTo: "/" })`
+- Password reset start: `auth.actions.passwordResetStart(request, { redirectTo: "/password-reset/sent" })`
+- Password reset finish: `auth.actions.passwordResetFinish(request, { redirectTo: "/login" })`
 - Passkey login: `auth.actions.passkeyLoginStart(request)` then `auth.actions.passkeyLoginFinish(request, { redirectTo: "/" })`
 - Logout: `auth.logout(request, { redirectTo: "/login" })`
 - TOTP enrollment: `auth.actions.totpEnrollmentStart(request)` then `auth.actions.totpEnrollmentFinish(request)`
@@ -858,3 +860,19 @@ Production guidance:
   - password login
   - TOTP verify
   - passkey finish
+
+Important proxy note:
+
+- The adapter can enforce **per-client** limits by deriving a client id (usually IP).
+- By default, it **does not** trust proxy headers like `x-forwarded-for` (clients can spoof them).
+- In production behind a trusted proxy/CDN that overwrites these headers, enable:
+
+```ts
+createReactRouterAuthAdapter({
+  core,
+  sessionCookie,
+  rateLimit: {
+    trustProxyHeaders: true
+  }
+});
+```

@@ -290,6 +290,152 @@ describe('adapters/react-router/react-router-adapter', () => {
     expect(res2.headers.get('retry-after')).toBeTruthy();
   });
 
+  it('rate limits passwordRegister by identifier', async () => {
+    let nowMs = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });
+    let calls = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      registerPassword: async () => {
+        calls++;
+        throw new Error('should not be called after rate limit triggers');
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: {
+        limiter,
+        rules: { passwordRegisterPerIdentifier: { windowMs: 60_000, max: 1 } },
+        getClientId: () => null
+      }
+    });
+
+    const mkReq = () =>
+      new Request('https://example.com/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ identifier: 'a@example.com', password: 'pw' })
+      });
+
+    await expect(adapter.actions.passwordRegister(mkReq())).resolves.toMatchObject({ status: 500 });
+    expect(calls).toBe(1);
+
+    const r2 = await adapter.actions.passwordRegister(mkReq());
+    expect(r2.status).toBe(429);
+    expect(r2.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('rate limits passwordResetStart by identifier', async () => {
+    let nowMs = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });
+    let calls = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      startPasswordReset: async () => {
+        calls++;
+        return { ok: true, created: false };
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: {
+        limiter,
+        rules: { passwordResetStartPerIdentifier: { windowMs: 60_000, max: 1 } },
+        getClientId: () => null
+      }
+    });
+
+    const mkReq = () =>
+      new Request('https://example.com/password-reset/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ identifier: 'a@example.com' })
+      });
+
+    const r1 = await adapter.actions.passwordResetStart(mkReq());
+    expect(r1.status).toBe(200);
+    expect(calls).toBe(1);
+
+    const r2 = await adapter.actions.passwordResetStart(mkReq());
+    expect(r2.status).toBe(429);
+    expect(r2.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('rate limits passkeyLoginStart per client when trustProxyHeaders=true', async () => {
+    let nowMs = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });
+    let calls = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      startPasskeyLogin: async () => {
+        calls++;
+        throw new Error('should not be called after rate limit triggers');
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: {
+        limiter,
+        trustProxyHeaders: true,
+        rules: { passkeyLoginStartPerClient: { windowMs: 60_000, max: 1 } }
+      }
+    });
+
+    const mkReq = () =>
+      new Request('https://example.com/passkeys/login/start', {
+        method: 'POST',
+        headers: {
+          origin: 'https://example.com',
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.1'
+        },
+        body: JSON.stringify({ csrfToken: 't' })
+      });
+
+    // Need CSRF cookie to satisfy double-submit
+    const csrf = adapter.csrf.getToken(new Request('https://example.com'));
+    const cookie = csrf.headers.get('set-cookie')!;
+
+    const r1 = await adapter.actions.passkeyLoginStart(
+      new Request('https://example.com/passkeys/login/start', {
+        method: 'POST',
+        headers: {
+          origin: 'https://example.com',
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.1',
+          cookie
+        },
+        body: JSON.stringify({ csrfToken: csrf.token })
+      })
+    );
+    expect(r1.status).toBe(500);
+    expect(calls).toBe(1);
+
+    const r2 = await adapter.actions.passkeyLoginStart(
+      new Request('https://example.com/passkeys/login/start', {
+        method: 'POST',
+        headers: {
+          origin: 'https://example.com',
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.1',
+          cookie
+        },
+        body: JSON.stringify({ csrfToken: csrf.token })
+      })
+    );
+    expect(r2.status).toBe(429);
+    expect(r2.headers.get('retry-after')).toBeTruthy();
+  });
+
   it('applies progressive delays/lockouts on failures and resets on success', async () => {
     let nowMs = 0;
     const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });

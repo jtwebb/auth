@@ -73,6 +73,14 @@ CSRF cookie defaults (double-submit) should usually be:
 
 The built-in limiter is in-memory (single instance). In production (multiple instances), enforce limits using a shared store such as **Redis** or at the edge (CDN/WAF).
 
+### Proxy / client IP trust boundary
+
+If you derive client identity from headers like `x-forwarded-for`, ensure your deployment is behind a **trusted proxy/CDN** that overwrites these headers. Otherwise attackers can spoof them and bypass per-client limits.
+
+In the React Router adapter, the safest pattern is:
+- Provide a custom `getClientId`, or
+- Enable `trustProxyHeaders: true` only when you control the proxy layer.
+
 ### Keying strategy (recommended)
 
 Use multiple keys per endpoint to resist distributed attacks:

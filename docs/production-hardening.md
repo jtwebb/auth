@@ -38,15 +38,18 @@ The React Router adapter performs an **Origin allowlist** check for state-changi
 ## Rate limiting & auditing
 
 Implement rate limiting on:
+
 - password login
 - passkey login start
 - passkey registration start
 - backup code redemption
 
+Proxy note: if you key per-client on IP, only trust `x-forwarded-for` / similar headers when you are
+behind a trusted proxy that overwrites them; otherwise clients can spoof them.
+
 Never log:
+
 - passwords
 - session tokens
 - backup codes
 - passkey assertion/attestation payloads (they can contain identifying info)
-
-
