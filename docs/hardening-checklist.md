@@ -73,6 +73,11 @@ CSRF cookie defaults (double-submit) should usually be:
 
 The built-in limiter is in-memory (single instance). In production (multiple instances), enforce limits using a shared store such as **Redis** or at the edge (CDN/WAF).
 
+Note on in-memory utilities:
+
+- `InMemoryRateLimiter` and `InMemoryProgressiveDelay` do **best-effort pruning** of expired entries to reduce memory growth.
+- They are still intended for **development** / **single-instance** deployments. Use Redis/edge controls for production.
+
 ### Proxy / client IP trust boundary
 
 If you derive client identity from headers like `x-forwarded-for`, ensure your deployment is behind a **trusted proxy/CDN** that overwrites these headers. Otherwise attackers can spoof them and bypass per-client limits.

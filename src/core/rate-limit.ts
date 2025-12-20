@@ -197,6 +197,10 @@ type BackoffState = {
   lastFailureMs: number;
   lockedUntilMs: number;
   nextAllowedAtMs: number;
+  /**
+   * Best-effort expiry for pruning (max of cooldown window + any lockout/delay).
+   */
+  expiresAtMs: number;
 };
 
 /**
@@ -209,9 +213,12 @@ type BackoffState = {
 export class InMemoryProgressiveDelay {
   private readonly state = new Map<string, BackoffState>();
   private readonly nowMs: () => number;
+  private readonly pruneEvery: number;
+  private opsSincePrune = 0;
 
-  constructor(options: { nowMs?: () => number } = {}) {
+  constructor(options: { nowMs?: () => number; pruneEvery?: number } = {}) {
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.pruneEvery = Math.max(1, Math.floor(options.pruneEvery ?? 1000));
   }
 
   check(key: string): ProgressiveDelayStatus {
@@ -219,6 +226,10 @@ export class InMemoryProgressiveDelay {
     const now = this.nowMs();
     const s = this.state.get(key);
     if (!s) return { ok: true };
+    if (now >= s.expiresAtMs) {
+      this.state.delete(key);
+      return { ok: true };
+    }
     const until = Math.max(s.lockedUntilMs, s.nextAllowedAtMs);
     if (until <= now) return { ok: true };
     return {
@@ -233,6 +244,11 @@ export class InMemoryProgressiveDelay {
     if (!key) return { ok: true };
     validateProgressiveRule(rule);
     const now = this.nowMs();
+    this.opsSincePrune++;
+    if (this.opsSincePrune >= this.pruneEvery) {
+      this.opsSincePrune = 0;
+      this.pruneExpired(now);
+    }
 
     const prev = this.state.get(key);
     const cooled =
@@ -253,13 +269,31 @@ export class InMemoryProgressiveDelay {
       lockedUntilMs = Math.max(lockedUntilMs, now + rule.lockoutMs);
     }
 
-    this.state.set(key, { failures, lastFailureMs, lockedUntilMs, nextAllowedAtMs });
+    const expiresAtMs = Math.max(now + rule.failureWindowMs, lockedUntilMs, nextAllowedAtMs);
+    this.state.set(key, { failures, lastFailureMs, lockedUntilMs, nextAllowedAtMs, expiresAtMs });
     return this.check(key);
   }
 
   recordSuccess(key: string): void {
     if (!key) return;
     this.state.delete(key);
+  }
+
+  /**
+   * Remove expired states to reduce unbounded memory growth under high key cardinality.
+   * Returns the number of removed states.
+   *
+   * Note: this class remains a dev/single-instance utility; for production use a shared store.
+   */
+  pruneExpired(nowMs: number = this.nowMs()): number {
+    let removed = 0;
+    for (const [k, s] of this.state) {
+      if (nowMs >= s.expiresAtMs) {
+        this.state.delete(k);
+        removed++;
+      }
+    }
+    return removed;
   }
 }
 

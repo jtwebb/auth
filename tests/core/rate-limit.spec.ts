@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { AuthError } from '../../src/core/auth-error.js';
-import { InMemoryRateLimiter, createOnAuthAttemptRateLimiter } from '../../src/core/rate-limit.js';
+import {
+  InMemoryProgressiveDelay,
+  InMemoryRateLimiter,
+  createOnAuthAttemptRateLimiter
+} from '../../src/core/rate-limit.js';
 
 describe('core/rate-limit', () => {
   it('blocks after max within window and unblocks after window resets', () => {
@@ -52,5 +56,24 @@ describe('core/rate-limit', () => {
     expect(limiter.consume('k1', rule)).toEqual({ ok: true });
     now += 1001;
     expect(limiter.pruneExpired()).toBe(1);
+  });
+
+  it('prunes expired progressive delay states (best-effort memory cleanup)', () => {
+    let now = 0;
+    const pd = new InMemoryProgressiveDelay({ nowMs: () => now, pruneEvery: 10_000 });
+    const rule = {
+      failureWindowMs: 1000,
+      startAfterFailures: 1,
+      baseDelayMs: 0,
+      factor: 2,
+      maxDelayMs: 0,
+      lockoutAfterFailures: 100,
+      lockoutMs: 0
+    };
+
+    pd.recordFailure('k1', rule);
+    now += 1001;
+    expect(pd.pruneExpired()).toBe(1);
+    expect(pd.check('k1')).toEqual({ ok: true });
   });
 });
