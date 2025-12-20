@@ -43,4 +43,14 @@ describe('core/rate-limit', () => {
     expect(() => rl.assertAllowed(['id:h1'])).toThrow(AuthError);
     expect(() => rl.assertAllowed(['id:h1'])).toThrow(/Too many attempts/);
   });
+
+  it('prunes expired buckets (best-effort memory cleanup)', () => {
+    let now = 0;
+    const limiter = new InMemoryRateLimiter({ nowMs: () => now, pruneEvery: 10_000 });
+    const rule = { windowMs: 1000, max: 2 };
+
+    expect(limiter.consume('k1', rule)).toEqual({ ok: true });
+    now += 1001;
+    expect(limiter.pruneExpired()).toBe(1);
+  });
 });

@@ -22,7 +22,7 @@ export type RateLimitResult =
       retryAfterMs: number;
     };
 
-type Bucket = { windowStartMs: number; count: number };
+type Bucket = { windowStartMs: number; windowMs: number; count: number };
 
 /**
  * Small in-memory rate limiter.
@@ -34,9 +34,12 @@ type Bucket = { windowStartMs: number; count: number };
 export class InMemoryRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
   private readonly nowMs: () => number;
+  private readonly pruneEvery: number;
+  private opsSincePrune = 0;
 
-  constructor(options: { nowMs?: () => number } = {}) {
+  constructor(options: { nowMs?: () => number; pruneEvery?: number } = {}) {
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.pruneEvery = Math.max(1, Math.floor(options.pruneEvery ?? 1000));
   }
 
   consume(key: string, rule: RateLimitRule): RateLimitResult {
@@ -47,12 +50,24 @@ export class InMemoryRateLimiter {
       throw new AuthError('invalid_input', 'rate limit rule.max must be >= 1');
 
     const now = this.nowMs();
+    this.opsSincePrune++;
+    if (this.opsSincePrune >= this.pruneEvery) {
+      this.opsSincePrune = 0;
+      this.pruneExpired(now);
+    }
     const existing = this.buckets.get(key);
-    const sameWindow = existing !== undefined && now - existing.windowStartMs < rule.windowMs;
+    const sameWindow =
+      existing !== undefined &&
+      existing.windowMs === rule.windowMs &&
+      now - existing.windowStartMs < rule.windowMs;
 
     const bucket: Bucket = sameWindow
-      ? { windowStartMs: existing!.windowStartMs, count: existing!.count + 1 }
-      : { windowStartMs: now, count: 1 };
+      ? {
+          windowStartMs: existing!.windowStartMs,
+          windowMs: rule.windowMs,
+          count: existing!.count + 1
+        }
+      : { windowStartMs: now, windowMs: rule.windowMs, count: 1 };
 
     this.buckets.set(key, bucket);
 
@@ -63,6 +78,23 @@ export class InMemoryRateLimiter {
 
   reset(key: string): void {
     this.buckets.delete(key);
+  }
+
+  /**
+   * Remove expired buckets to reduce unbounded memory growth under high key cardinality.
+   * Returns the number of removed buckets.
+   *
+   * Note: this class remains a dev/single-instance utility; for production use a shared store.
+   */
+  pruneExpired(nowMs: number = this.nowMs()): number {
+    let removed = 0;
+    for (const [k, b] of this.buckets) {
+      if (nowMs - b.windowStartMs >= b.windowMs) {
+        this.buckets.delete(k);
+        removed++;
+      }
+    }
+    return removed;
   }
 }
 
