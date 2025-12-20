@@ -1,5 +1,7 @@
 export type UserVerificationPolicy = 'required' | 'preferred' | 'discouraged';
 
+export type SecurityProfile = 'strict' | 'balanced' | 'legacy';
+
 export type PasswordPolicy = {
   /**
    * Keep rules simple: require long passwords, avoid composition rules.
@@ -135,3 +137,36 @@ export const defaultAuthPolicy: AuthPolicy = {
     tokenTtlMs: 1000 * 60 * 15 // 15m
   }
 };
+
+export const balancedAuthPolicy: AuthPolicy = defaultAuthPolicy;
+
+export const strictAuthPolicy: AuthPolicy = {
+  ...defaultAuthPolicy,
+  passkey: { ...defaultAuthPolicy.passkey, userVerification: 'required' },
+  session: {
+    absoluteTtlMs: 1000 * 60 * 60 * 24 * 7, // 7d
+    idleTtlMs: 1000 * 60 * 60 * 24, // 1d
+    rotateEveryMs: 1000 * 60 * 60 * 6, // 6h
+    touchEveryMs: 1000 * 60 // 1m
+  }
+};
+
+export const legacyAuthPolicy: AuthPolicy = {
+  ...defaultAuthPolicy,
+  password: { ...defaultAuthPolicy.password, minLength: 8 },
+  session: {
+    absoluteTtlMs: 1000 * 60 * 60 * 24 * 30, // 30d
+    touchEveryMs: 0
+  }
+};
+
+export function getAuthPolicyForSecurityProfile(profile: SecurityProfile): AuthPolicy {
+  switch (profile) {
+    case 'strict':
+      return strictAuthPolicy;
+    case 'balanced':
+      return balancedAuthPolicy;
+    case 'legacy':
+      return legacyAuthPolicy;
+  }
+}

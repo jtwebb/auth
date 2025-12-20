@@ -552,6 +552,8 @@ import { createAuthCore } from '@jtwebb/auth/core';
 
 const core = createAuthCore({
   storage,
+  // Optional: use opinionated presets ("strict" | "balanced" | "legacy")
+  // securityProfile: 'strict',
   policy: {
     passkey: {
       rpId: 'example.com',
@@ -615,6 +617,8 @@ import { createReactRouterAuthAdapter } from '@jtwebb/auth/react-router';
 
 export const auth = createReactRouterAuthAdapter({
   core,
+  // Optional: adapter defaults preset ("strict" | "balanced" | "legacy")
+  // securityProfile: 'strict',
   sessionCookie: {
     name: 'sid',
     path: '/',

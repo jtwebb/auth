@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes as nodeRandomBytes } from 'node:crypto';
 import { AuthError, isAuthError } from './auth-error.js';
 import type { AuthPolicy } from './auth-policy.js';
-import { defaultAuthPolicy } from './auth-policy.js';
+import { getAuthPolicyForSecurityProfile, type SecurityProfile } from './auth-policy.js';
 import type {
   CreateSessionTokenResult,
   PasswordLoginInput,
@@ -114,6 +114,11 @@ export type CreateAuthCoreOptions = {
    */
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
   /**
+   * Security presets that configure policy defaults.
+   * Defaults to "balanced".
+   */
+  securityProfile?: SecurityProfile;
+  /**
    * If provided, we hash session tokens using HMAC-SHA256(token, secret).
    * Otherwise, SHA-256(token).
    */
@@ -195,7 +200,8 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
     throw new AuthError('invalid_input', 'createAuthCore: storage is required');
   }
 
-  const policy: AuthPolicy = mergePolicy(defaultAuthPolicy, options.policy);
+  const basePolicy = getAuthPolicyForSecurityProfile(options.securityProfile ?? 'balanced');
+  const policy: AuthPolicy = mergePolicy(basePolicy, options.policy);
   validatePolicy(policy);
 
   const randomBytes: RandomBytesFn = options.randomBytes ?? nodeRandomBytes;

@@ -161,6 +161,33 @@ describe('adapters/react-router/react-router-adapter', () => {
     expect(resOk.headers.get('set-cookie')).toMatch(/sid=/);
   });
 
+  it('securityProfile=legacy disables double-submit CSRF by default (origin-only)', async () => {
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      loginPassword: async () => ({
+        userId: 'u1',
+        session: { sessionToken: 't', sessionTokenHash: 'h' }
+      })
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      securityProfile: 'legacy',
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' }
+    });
+
+    const req = new Request('https://example.com/login', {
+      method: 'POST',
+      headers: {
+        origin: 'https://example.com',
+        'content-type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({ identifier: 'a@example.com', password: 'pw' })
+    });
+    const res = await adapter.actions.passwordLogin(req);
+    expect(res.status).toBe(302);
+  });
+
   it('derives userId from session (ignores client userId) for authenticated enrollment flows', async () => {
     let finishUserId: string | null = null;
 

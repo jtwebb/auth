@@ -7,3 +7,4 @@
 export * from './cookies.js';
 export * from './http.js';
 export * from './react-router-adapter.js';
+export type { SecurityProfile } from '../../core/auth-policy.js';

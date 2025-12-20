@@ -13,12 +13,18 @@ import type {
   PasskeyRegistrationFinishInput
 } from '../../core/passkey/passkey-types.js';
 import { randomBytes } from 'node:crypto';
+import type { SecurityProfile } from '../../core/auth-policy.js';
 import type { CookieOptions } from './cookies.js';
 import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
 import { assertSameOrigin, json, readForm, readJson, redirect } from './http.js';
 
 export type ReactRouterAuthAdapterOptions = {
   core: AuthCore;
+  /**
+   * Security presets that configure adapter defaults (CSRF strictness + rate limits/lockouts).
+   * Defaults to "balanced".
+   */
+  securityProfile?: SecurityProfile;
   /**
    * Cookie configuration for transporting the session token.
    */
@@ -170,10 +176,16 @@ export type ReactRouterAuthAdapter = {
 export function createReactRouterAuthAdapter(
   options: ReactRouterAuthAdapterOptions
 ): ReactRouterAuthAdapter {
+  const securityProfile: SecurityProfile = options.securityProfile ?? 'balanced';
+  const defaultCsrfAllowMissingOrigin: boolean = securityProfile === 'legacy';
+  const defaultDoubleSubmitEnabled: boolean = securityProfile !== 'legacy';
+  const defaultRateLimitEnabled: boolean = securityProfile !== 'legacy';
+  const defaultProgressiveDelayEnabled: boolean = securityProfile !== 'legacy';
+
   const allowedOrigins = options.csrf?.allowedOrigins ?? options.core.policy.passkey.origins;
   const csrfEnabled = options.csrf?.enabled ?? true;
-  const csrfAllowMissingOrigin = options.csrf?.allowMissingOrigin ?? false;
-  const csrfDoubleSubmitEnabled = options.csrf?.doubleSubmit?.enabled ?? true;
+  const csrfAllowMissingOrigin = options.csrf?.allowMissingOrigin ?? defaultCsrfAllowMissingOrigin;
+  const csrfDoubleSubmitEnabled = options.csrf?.doubleSubmit?.enabled ?? defaultDoubleSubmitEnabled;
   const csrfTokenCookie: CookieOptions = options.csrf?.doubleSubmit?.cookie ?? {
     name: 'csrf',
     path: '/',
@@ -193,7 +205,7 @@ export function createReactRouterAuthAdapter(
   };
   const twoFactorRedirectTo = options.twoFactorRedirectTo ?? '/two-factor';
 
-  const rateLimitEnabled = options.rateLimit?.enabled ?? true;
+  const rateLimitEnabled = options.rateLimit?.enabled ?? defaultRateLimitEnabled;
   const limiter: Pick<InMemoryRateLimiter, 'consume'> =
     options.rateLimit?.limiter ?? new InMemoryRateLimiter();
   const getClientId =
@@ -230,7 +242,8 @@ export function createReactRouterAuthAdapter(
     });
   };
 
-  const progressiveDelayEnabled = options.rateLimit?.progressiveDelay?.enabled ?? true;
+  const progressiveDelayEnabled =
+    options.rateLimit?.progressiveDelay?.enabled ?? defaultProgressiveDelayEnabled;
   const progressiveStore: Pick<
     InMemoryProgressiveDelay,
     'check' | 'recordFailure' | 'recordSuccess'
