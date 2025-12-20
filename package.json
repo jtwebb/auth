@@ -1,6 +1,6 @@
 {
   "name": "@jtwebb/auth",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Authentication library for web applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
