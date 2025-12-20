@@ -1,3 +1,4 @@
+import { createHash, createHmac } from 'node:crypto';
 import { AuthError } from '../auth-error.js';
 import type { AuthPolicy } from '../auth-policy.js';
 import type {
@@ -23,6 +24,7 @@ export type PasswordAuthContext = {
   passwordPepper?: string | Uint8Array;
   passwordHashParams?: Partial<Argon2Params>;
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
+  identifierHashSecret?: Uint8Array | string;
 };
 
 export type PasswordRegisterContext = {
@@ -35,6 +37,7 @@ export type PasswordRegisterContext = {
   passwordPepper?: string | Uint8Array;
   passwordHashParams?: Partial<Argon2Params>;
   onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>;
+  identifierHashSecret?: Uint8Array | string;
 };
 
 export async function registerWithPassword(
@@ -42,6 +45,7 @@ export async function registerWithPassword(
 ): Promise<PasswordRegisterResult> {
   const { input, storage, policy } = ctx;
   const identifier = normalizeIdentifier(input.identifier);
+  const identifierHash = hashIdentifier(identifier, ctx.identifierHashSecret);
   validatePasswordAgainstPolicy(input.password, policy);
 
   const now = ctx.now();
@@ -53,7 +57,7 @@ export async function registerWithPassword(
   } catch (cause) {
     await safeAttemptHook(ctx.onAuthAttempt, {
       type: 'password_register',
-      identifier,
+      identifierHash,
       ok: false,
       reason: 'conflict'
     });
@@ -93,7 +97,7 @@ export async function registerWithPassword(
 
   await safeAttemptHook(ctx.onAuthAttempt, {
     type: 'password_register',
-    identifier,
+    identifierHash,
     userId,
     ok: true
   });
@@ -104,6 +108,7 @@ export async function registerWithPassword(
 export async function loginWithPassword(ctx: PasswordAuthContext): Promise<PasswordLoginResult> {
   const { input, storage, policy } = ctx;
   const identifier = normalizeIdentifier(input.identifier);
+  const identifierHash = hashIdentifier(identifier, ctx.identifierHashSecret);
   validatePasswordAgainstPolicy(input.password, policy);
 
   const now = ctx.now();
@@ -114,7 +119,7 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
     await dummyVerify(input.password, ctx.passwordPepper, ctx.passwordHashParams);
     await safeAttemptHook(ctx.onAuthAttempt, {
       type: 'password_login',
-      identifier,
+      identifierHash,
       ok: false,
       reason: 'not_found'
     });
@@ -126,7 +131,7 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
     await dummyVerify(input.password, ctx.passwordPepper, ctx.passwordHashParams);
     await safeAttemptHook(ctx.onAuthAttempt, {
       type: 'password_login',
-      identifier,
+      identifierHash,
       userId: userId as unknown as string,
       ok: false,
       reason: 'no_password_credential'
@@ -143,7 +148,7 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
   if (!result.ok) {
     await safeAttemptHook(ctx.onAuthAttempt, {
       type: 'password_login',
-      identifier,
+      identifierHash,
       userId: userId as unknown as string,
       ok: false,
       reason: 'invalid_password'
@@ -176,7 +181,7 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
     });
     await safeAttemptHook(ctx.onAuthAttempt, {
       type: 'password_login',
-      identifier,
+      identifierHash,
       userId: userId as unknown as string,
       ok: true
     });
@@ -201,7 +206,7 @@ export async function loginWithPassword(ctx: PasswordAuthContext): Promise<Passw
 
   await safeAttemptHook(ctx.onAuthAttempt, {
     type: 'password_login',
-    identifier,
+    identifierHash,
     userId: userId as unknown as string,
     ok: true
   });
@@ -259,4 +264,11 @@ async function dummyVerify(
     params: desiredParams
   });
   await verifyPassword(password, dummyHash, { pepper, desiredParams });
+}
+
+function hashIdentifier(identifier: string, secret?: Uint8Array | string): string {
+  const payload = `identifier:v1:${identifier}`;
+  return secret !== undefined
+    ? createHmac('sha256', secret).update(payload).digest('hex')
+    : createHash('sha256').update(payload).digest('hex');
 }

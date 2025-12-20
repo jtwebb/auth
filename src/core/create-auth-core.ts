@@ -65,14 +65,22 @@ export type Clock = { now: () => Date };
 export type AuthAttemptEvent =
   | {
       type: 'password_login';
-      identifier: string;
+      /**
+       * Privacy-safe identifier. Prefer HMAC-SHA256(identifier, secret).
+       * Never includes the raw identifier (email/username).
+       */
+      identifierHash: string;
       userId?: string;
       ok: boolean;
       reason?: 'not_found' | 'no_password_credential' | 'invalid_password';
     }
   | {
       type: 'password_register';
-      identifier: string;
+      /**
+       * Privacy-safe identifier. Prefer HMAC-SHA256(identifier, secret).
+       * Never includes the raw identifier (email/username).
+       */
+      identifierHash: string;
       userId?: string;
       ok: boolean;
       reason?: 'conflict';
@@ -177,6 +185,11 @@ export type CreateAuthCoreOptions = {
    * Otherwise, SHA-256(token).
    */
   sessionTokenHashSecret?: Uint8Array | string;
+  /**
+   * Optional secret used to hash identifiers for audit/rate-limit events.
+   * If omitted, we fall back to sessionTokenHashSecret when present, otherwise SHA-256.
+   */
+  identifierHashSecret?: Uint8Array | string;
   /**
    * Optional secret used to hash session binding context values (clientId/userAgent).
    * If omitted, we fall back to sessionTokenHashSecret when present, otherwise SHA-256.
@@ -409,7 +422,8 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         hashSessionContextValue,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
-        onAuthAttempt: options.onAuthAttempt
+        onAuthAttempt: options.onAuthAttempt,
+        identifierHashSecret: options.identifierHashSecret ?? options.sessionTokenHashSecret
       }),
     loginPassword: async input =>
       loginWithPassword({
@@ -422,7 +436,8 @@ export function createAuthCore(options: CreateAuthCoreOptions): AuthCore {
         hashSessionContextValue,
         passwordPepper: options.passwordPepper,
         passwordHashParams: options.passwordHashParams,
-        onAuthAttempt: options.onAuthAttempt
+        onAuthAttempt: options.onAuthAttempt,
+        identifierHashSecret: options.identifierHashSecret ?? options.sessionTokenHashSecret
       }),
     startPasskeyRegistration: async input =>
       (async () => {

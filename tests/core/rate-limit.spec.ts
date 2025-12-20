@@ -23,24 +23,24 @@ describe('core/rate-limit', () => {
     const rl = createOnAuthAttemptRateLimiter({
       limiter,
       rule: { windowMs: 10_000, max: 2 },
-      keys: e => (e.type === 'password_login' ? [`id:${e.identifier}`] : [])
+      keys: e => (e.type === 'password_login' ? [`id:${e.identifierHash}`] : [])
     });
 
     // Record failures via onAuthAttempt (non-blocking)
     rl.onAuthAttempt({
       type: 'password_login',
-      identifier: 'a@example.com',
+      identifierHash: 'h1',
       ok: false,
       reason: 'invalid_password'
     });
     rl.onAuthAttempt({
       type: 'password_login',
-      identifier: 'a@example.com',
+      identifierHash: 'h1',
       ok: false,
       reason: 'invalid_password'
     });
 
-    expect(() => rl.assertAllowed(['id:a@example.com'])).toThrow(AuthError);
-    expect(() => rl.assertAllowed(['id:a@example.com'])).toThrow(/Too many attempts/);
+    expect(() => rl.assertAllowed(['id:h1'])).toThrow(AuthError);
+    expect(() => rl.assertAllowed(['id:h1'])).toThrow(/Too many attempts/);
   });
 });

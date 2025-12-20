@@ -12,7 +12,7 @@ import type {
   PasskeyLoginFinishInput,
   PasskeyRegistrationFinishInput
 } from '../../core/passkey/passkey-types.js';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SecurityProfile } from '../../core/auth-policy.js';
 import type { CookieOptions } from './cookies.js';
 import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
@@ -487,7 +487,9 @@ export function createReactRouterAuthAdapter(
         publicMessage: 'Forbidden'
       });
     }
-    if (token !== tokenFromCookie) {
+    const a = createHash('sha256').update(tokenFromCookie).digest();
+    const b = createHash('sha256').update(token).digest();
+    if (!timingSafeEqual(a, b)) {
       throw new AuthError('forbidden', 'CSRF protection: invalid token', {
         status: 403,
         publicMessage: 'Forbidden'

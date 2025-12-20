@@ -797,8 +797,8 @@ const rl = createOnAuthAttemptRateLimiter({
   limiter,
   // 10 failures per 15 minutes
   rule: { windowMs: 15 * 60_000, max: 10 },
-  // Count failures per identifier (you can add per-IP keys in your adapter where you have request context).
-  keys: e => (e.type === 'password_login' && !e.ok ? [`login:id:${e.identifier}`] : [])
+  // Count failures per identifier hash (never log/store raw identifiers).
+  keys: e => (e.type === 'password_login' && !e.ok ? [`login:id:${e.identifierHash}`] : [])
 });
 
 const core = createAuthCore({

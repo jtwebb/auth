@@ -78,6 +78,7 @@ The built-in limiter is in-memory (single instance). In production (multiple ins
 If you derive client identity from headers like `x-forwarded-for`, ensure your deployment is behind a **trusted proxy/CDN** that overwrites these headers. Otherwise attackers can spoof them and bypass per-client limits.
 
 In the React Router adapter, the safest pattern is:
+
 - Provide a custom `getClientId`, or
 - Enable `trustProxyHeaders: true` only when you control the proxy layer.
 
@@ -128,6 +129,11 @@ Avoid disabling CSRF checks unless you truly aren’t using cookies (pure token 
 ## 5) Monitoring & alerting
 
 Use `onAuthAttempt` to create low-cardinality counters (no secrets).
+
+Privacy guidance:
+
+- Do **not** log raw emails/usernames/identifiers.
+- Prefer logging `identifierHash` (HMAC-SHA256 with an app secret) and/or internal `userId`.
 
 Suggested alerts:
 
