@@ -729,7 +729,7 @@ await passkeys.login(); // passkey-first (discoverable)
 
 ## Security notes (must read)
 
-See `SECURITY.md` and `docs/production-hardening.md`.
+See `SECURITY.md`, `docs/production-hardening.md`, and `docs/hardening-checklist.md`.
 
 ## Password reset / account recovery (server)
 

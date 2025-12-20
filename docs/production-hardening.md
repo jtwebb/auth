@@ -1,5 +1,7 @@
 # Production hardening
 
+If you want a practical, copy/paste oriented guide, also see `docs/hardening-checklist.md`.
+
 ## Sessions (cookie transport, DB-backed)
 
 - **Cookie**: `httpOnly`, `secure`, `sameSite=lax` (or `strict` if it fits your UX), `path=/`
