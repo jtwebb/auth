@@ -161,6 +161,39 @@ describe('adapters/react-router/react-router-adapter', () => {
     expect(resOk.headers.get('set-cookie')).toMatch(/sid=/);
   });
 
+  it('supports custom csrf.doubleSubmit.jsonFieldName for JSON actions', async () => {
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      startPasskeyLogin: async () => ({ challengeId: 'c1', options: {} })
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: {
+        doubleSubmit: {
+          jsonFieldName: 'csrf'
+        }
+      }
+    });
+
+    const csrf = adapter.csrf.getToken(new Request('https://example.com'));
+    const cookie = csrf.headers.get('set-cookie')!;
+
+    const req = new Request('https://example.com/passkeys/login/start', {
+      method: 'POST',
+      headers: {
+        origin: 'https://example.com',
+        'content-type': 'application/json',
+        cookie
+      },
+      body: JSON.stringify({ csrf: csrf.token })
+    });
+
+    const res = await adapter.actions.passkeyLoginStart(req);
+    expect(res.status).toBe(200);
+  });
+
   it('securityProfile=legacy disables double-submit CSRF by default (origin-only)', async () => {
     const core = {
       policy: { passkey: { origins: ['https://example.com'] } },

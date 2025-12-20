@@ -221,6 +221,7 @@ export function createReactRouterAuthAdapter(
   };
   const csrfHeaderName = (options.csrf?.doubleSubmit?.headerName ?? 'x-csrf-token').toLowerCase();
   const csrfFormFieldName = options.csrf?.doubleSubmit?.formFieldName ?? 'csrfToken';
+  const csrfJsonFieldName = options.csrf?.doubleSubmit?.jsonFieldName ?? 'csrfToken';
   const totpPendingCookie: CookieOptions = options.totpPendingCookie ?? {
     name: 'totp',
     path: '/',
@@ -494,6 +495,17 @@ export function createReactRouterAuthAdapter(
     }
   };
 
+  const readCsrfFromJsonBody = (body: unknown): string | null => {
+    if (!body || typeof body !== 'object') return null;
+    const anyBody = body as Record<string, unknown>;
+    const v = anyBody[csrfJsonFieldName];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    // Backward-compatible default
+    const legacy = anyBody['csrfToken'];
+    if (typeof legacy === 'string' && legacy.trim()) return legacy.trim();
+    return null;
+  };
+
   const sessionContextFromRequest = (request: Request) => ({
     clientId: getClientId(request) ?? undefined,
     userAgent: request.headers.get('user-agent') ?? undefined
@@ -733,7 +745,7 @@ export function createReactRouterAuthAdapter(
         userDisplayName?: string;
         csrfToken?: string;
       }>(request);
-      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       const clientId = getClientId(request);
       const userKey = `passkey_register_start:user:${userId}`;
       const clientKey = clientId ? `passkey_register_start:client:${clientId}` : null;
@@ -762,7 +774,7 @@ export function createReactRouterAuthAdapter(
       const body = await readJson<
         Omit<PasskeyRegistrationFinishInput, 'userId'> & { csrfToken?: string }
       >(request);
-      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       await options.core.finishPasskeyRegistration({
         userId: userId as unknown as UserId,
         challengeId: body.challengeId as unknown as ChallengeId,
@@ -778,7 +790,7 @@ export function createReactRouterAuthAdapter(
     csrfCheckOrigin(request);
     try {
       const body = await readJson<{ userId?: string; csrfToken?: string }>(request);
-      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       const clientId = getClientId(request);
       const clientKey = clientId ? `passkey_login_start:client:${clientId}` : null;
       if (clientKey) {
@@ -804,10 +816,7 @@ export function createReactRouterAuthAdapter(
     try {
       const body = await readJson<PasskeyLoginFinishInput>(request);
       // Allow token via header for JS clients; optional body.csrfToken also supported if present.
-      assertDoubleSubmitCsrf(
-        request,
-        (body as unknown as { csrfToken?: string }).csrfToken ?? null
-      );
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       const clientId = getClientId(request);
       challengeKey = `passkey_finish:challenge:${body.challengeId as unknown as string}`;
       clientKey = clientId ? `passkey_finish:client:${clientId}` : null;
@@ -862,7 +871,7 @@ export function createReactRouterAuthAdapter(
     try {
       const { userId, headers } = await requireUser(request);
       const body = await readJson<{ accountName: string; csrfToken?: string }>(request);
-      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       const out = await options.core.startTotpEnrollment({
         userId: userId as unknown as UserId,
         accountName: body.accountName
@@ -881,7 +890,7 @@ export function createReactRouterAuthAdapter(
     try {
       const { userId, headers } = await requireUser(request);
       const body = await readJson<{ code: string; csrfToken?: string }>(request);
-      assertDoubleSubmitCsrf(request, body.csrfToken ?? null);
+      assertDoubleSubmitCsrf(request, readCsrfFromJsonBody(body));
       await options.core.finishTotpEnrollment({
         userId: userId as unknown as UserId,
         code: body.code
