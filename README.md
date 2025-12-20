@@ -20,6 +20,186 @@ npm i @jtwebb/auth
 - `@jtwebb/auth/pg`
 - `@jtwebb/auth/kysely`
 
+## Configuration options reference
+
+This section lists the **public configuration options** exposed by this package (core + adapters + utilities) and what they do.
+
+### `createAuthCore(options)`
+
+`createAuthCore` accepts `CreateAuthCoreOptions`:
+
+- **`storage`** (required): Your `AuthStorage` implementation (DB access).
+- **`randomBytes?: (size: number) => Uint8Array`**: Inject randomness source (mostly for tests). Defaults to Node `crypto.randomBytes`.
+- **`clock?: { now: () => Date }`**: Inject clock (mostly for tests). Defaults to `new Date()`.
+- **`passwordPepper?: string | Uint8Array`**: Optional secret mixed into password hashing. Store in a secrets manager; rotating it invalidates all stored password hashes.
+- **`passwordHashParams?: Partial<Argon2Params>`**: Override Argon2id parameters (advanced; prefer defaults unless you have benchmarking data).
+- **`onAuthAttempt?: (event: AuthAttemptEvent) => void | Promise<void>`**: Non-blocking hook for logging/auditing/rate-limit counters. Do not log secrets; events are designed to be safe and exclude raw identifiers.
+- **`securityProfile?: SecurityProfile`**: Policy preset (`'strict' | 'balanced' | 'legacy'`). Defaults to `'balanced'`. See “Security profiles” below.
+- **`sessionTokenHashSecret?: string | Uint8Array`**: If set, session tokens are hashed with HMAC-SHA256(token, secret) before storage; otherwise plain SHA-256(token).
+- **`identifierHashSecret?: string | Uint8Array`**: Secret used to hash identifiers for `onAuthAttempt` payloads (privacy-safe). If omitted: falls back to `sessionTokenHashSecret` when present, otherwise SHA-256.
+- **`sessionContextHashSecret?: string | Uint8Array`**: Secret used to hash session binding values (e.g. `clientId`/`userAgent`). If omitted: falls back to `sessionTokenHashSecret` when present, otherwise SHA-256.
+- **`passwordResetTokenHashSecret?: string | Uint8Array`**: Secret used to HMAC password reset tokens before storing (recommended).
+- **`backupCodeHashSecret?: string | Uint8Array`**: Secret used to HMAC backup codes before storing (recommended).
+- **`totpEncryptionKey?: string | Uint8Array | { primaryKeyId: string; keys: Record<string, string | Uint8Array> }`**: Enables TOTP and encrypts TOTP secrets at rest. Supports key rotation via a key ring (see “TOTP encryption key rotation”).
+- **`policy?: Partial<AuthPolicy>`**: Partial override for the auth policy. The full shape is:
+  - **`policy.password`**:
+    - **`minLength: number`**: Minimum password length.
+    - **`maxLength: number`**: Maximum password length (defends against pathological inputs).
+  - **`policy.passkey`**:
+    - **`rpId: string`**: WebAuthn RP ID (usually your domain).
+    - **`rpName: string`**: Human-friendly name shown in passkey UX.
+    - **`origins: readonly string[]`**: Allowed WebAuthn origins (also used as default allowed origins for adapter CSRF checks).
+    - **`userVerification: 'required' | 'preferred' | 'discouraged'`**: WebAuthn user verification policy.
+  - **`policy.backupCodes`**:
+    - **`count: number`**: Number of backup codes per rotation.
+    - **`length: number`**: Code length (implementation-defined encoding).
+  - **`policy.totp`**:
+    - **`issuer: string`**: Issuer label used in otpauth URIs.
+    - **`digits: 6 | 8`**: Code digits.
+    - **`periodSeconds: 30 | 60`**: Step period.
+    - **`allowedSkewSteps: number`**: Accepted +/- time steps for clock skew.
+  - **`policy.session`**:
+    - **`absoluteTtlMs: number`**: Absolute session lifetime.
+    - **`idleTtlMs?: number`**: Idle timeout (sliding expiration).
+    - **`rotateEveryMs?: number`**: Rotation interval (limits token replay window).
+    - **`touchEveryMs?: number`**: Reduce write amplification: touch `lastSeenAt` at most this often (set `0` to touch every request).
+    - **`bindTo?: { clientId?: boolean; userAgent?: boolean }`**: Optional session binding checks (environment-dependent; disabled by default).
+  - **`policy.challenge`**:
+    - **`ttlMs: number`**: TTL for challenges (WebAuthn, step-up).
+  - **`policy.passwordReset`**:
+    - **`tokenTtlMs: number`**: Password reset token lifetime.
+
+### Security profiles (`SecurityProfile`)
+
+`SecurityProfile` is a preset that sets **policy defaults**:
+
+- **`'strict'`**: Shorter session TTLs, more frequent rotation/touch, and `passkey.userVerification: 'required'`.
+- **`'balanced'`** (default): Secure defaults intended for most apps.
+- **`'legacy'`**: More permissive (e.g. weaker password minimums, reduced session touching). Prefer only when you must preserve legacy behavior.
+
+You can also compute the preset policy directly via `getAuthPolicyForSecurityProfile(profile)`.
+
+### `createReactRouterAuthAdapter(options)`
+
+`createReactRouterAuthAdapter` accepts `ReactRouterAuthAdapterOptions`:
+
+- **`core`** (required): The `AuthCore` instance.
+- **`securityProfile?: SecurityProfile`**: Adapter preset affecting defaults (CSRF strictness, rate limiting, and progressive delays). Defaults to `'balanced'`.
+- **`sessionCookie`** (required): `CookieOptions` for the session cookie.
+- **`totpPendingCookie?: CookieOptions`**: Cookie for the TOTP “pending step-up” token (httpOnly). Defaults are applied if omitted.
+- **`twoFactorRedirectTo?: string`**: Where to redirect users when 2FA is required. Defaults to `'/two-factor'`.
+- **`csrf?: { ... }`**: CSRF/origin protection for state-changing actions:
+  - **`enabled?: boolean`**: Enable CSRF checks. Defaults to `true`.
+  - **`allowedOrigins?: readonly string[]`**: Allowed request origins. Defaults to `core.policy.passkey.origins`.
+  - **`allowMissingOrigin?: boolean`**: If `true`, allows requests missing both Origin/Referer (useful for non-browser clients). Defaults to `false` (or `true` under `'legacy'`).
+  - **`doubleSubmit?: { ... }`**: Double-submit protection (enabled by default unless `'legacy'`):
+    - **`enabled?: boolean`**: Enable double-submit checks.
+    - **`cookie?: CookieOptions`**: CSRF cookie settings (must not be HttpOnly if JS needs to read it for fetch/XHR).
+    - **`headerName?: string`**: Header name for fetch/XHR clients. Default: `'x-csrf-token'`.
+    - **`formFieldName?: string`**: Form field name for HTML posts. Default: `'csrfToken'`.
+    - **`jsonFieldName?: string`**: JSON field name if clients submit CSRF token in JSON bodies. Default: `'csrfToken'`.
+- **`rateLimit?: { ... }`**: Rate limiting + progressive delays (enabled by default unless `'legacy'`):
+  - **`enabled?: boolean`**: Enable fixed-window rate limiting.
+  - **`limiter?: Pick<InMemoryRateLimiter, 'consume'>`**: Custom limiter (defaults to a new `InMemoryRateLimiter()`).
+  - **`trustProxyHeaders?: boolean`**: If `true`, allows deriving client id from proxy headers like `cf-connecting-ip` / `x-forwarded-for`. Defaults to `false` (safer; prevents spoofing).
+  - **`getClientId?: (request: Request) => string | null`**: Custom client id extraction for per-client limits. If it returns null/empty, per-client limits are skipped.
+  - **`rules?: Partial<ReactRouterAuthRateLimitRules>`**: Override fixed-window rate-limit rules.
+  - **`progressiveDelay?: { ... }`**: Progressive delays + temporary lockouts (resets on success; enabled by default unless `'legacy'`):
+    - **`enabled?: boolean`**
+    - **`store?: Pick<InMemoryProgressiveDelay, 'check' | 'recordFailure' | 'recordSuccess'>`**: Custom store (defaults to a new `InMemoryProgressiveDelay()`).
+    - **`rules?: Partial<ReactRouterAuthProgressiveDelayRules>`**: Override progressive delay/lockout rules.
+
+`rules` keys you can override (both fixed-window and progressive-delay variants share the same “shape” of endpoints):
+
+- **Password**:
+  - **`passwordLoginPerIdentifier`**: Per-identifier login attempts (identifier is privacy-hashed internally by the adapter).
+  - **`passwordLoginPerClient`**: Per-client login attempts (client id derived from request; disabled unless you provide/enable it).
+  - **`passwordRegisterPerIdentifier`**, **`passwordRegisterPerClient`**
+  - **`passwordResetStartPerIdentifier`**, **`passwordResetStartPerClient`**
+  - **`passwordResetFinishPerClient`**
+- **Passkeys**:
+  - **`passkeyLoginStartPerClient`**
+  - **`passkeyRegisterStartPerClient`**, **`passkeyRegisterStartPerUser`**
+  - **`passkeyFinishPerChallenge`**, **`passkeyFinishPerClient`**
+- **TOTP step-up**:
+  - **`totpVerifyPerPending`**: Per pending-step token (httpOnly cookie).
+  - **`totpVerifyPerClient`**
+
+### React Router adapter utility options
+
+These are exported from `@jtwebb/auth/react-router` and are used by the adapter (you can also use them directly):
+
+- **`CookieOptions`**:
+  - **`name: string`**: Cookie name.
+  - **`path?: string`**: Defaults to `'/'`.
+  - **`domain?: string`**
+  - **`httpOnly?: boolean`**: Defaults to `true` in `serializeCookie` (note: CSRF cookie defaults to `httpOnly: false`).
+  - **`secure?: boolean`**: Defaults to `true`.
+  - **`sameSite?: 'lax' | 'strict' | 'none'`**: Defaults to `'lax'` (CSRF cookie defaults to `'strict'`).
+  - **`maxAgeSeconds?: number`**
+  - Cookie prefix hardening is enforced:
+    - `__Host-` cookies must be `Secure`, `Path=/`, and must not set `Domain`
+    - `SameSite=None` requires `Secure`
+- **`SameOriginOptions`** (for `assertSameOrigin`):
+  - **`allowMissingOrigin?: boolean`**
+  - **`allowRefererFallback?: boolean`** (default `true`)
+
+### Postgres adapter: `createPgAuthStorage(options)`
+
+`createPgAuthStorage` accepts `CreatePgAuthStorageOptions`:
+
+- **`pool`** (required): `pg`-compatible pool.
+- **`schema?: string`**: Optional Postgres schema/namespace (qualifies table names).
+- **`tablePrefix?: string`**: Optional prefix applied to default table names.
+- **`tables?: Partial<PgAuthTables>`**: Override individual table names (`users`, `passwordCredentials`, `passwordResetTokens`, `webauthnCredentials`, `challenges`, `sessions`, `backupCodes`, `totp`).
+- **`now?: () => Date`**: Injectable clock (tests).
+- **`logger?: { debug(message: string, meta?: Record<string, unknown>): void }`**: Optional debug logger (never logs secrets; you should still avoid logging PII in `meta`).
+
+### Kysely adapter: `createKyselyAuthStorage(options)`
+
+`createKyselyAuthStorage` accepts `CreateKyselyAuthStorageOptions`:
+
+- **`db`** (required): Kysely DB instance (use `db.withSchema('...')` if you need schema support).
+- **`tablePrefix?: string`**
+- **`tables?: Partial<KyselyAuthTables>`**: Same table override keys as Postgres.
+- **`now?: () => Date`**
+- **`logger?: { debug(message: string, meta?: Record<string, unknown>): void }`**
+
+### Rate limiting utilities (core)
+
+These are exported from `@jtwebb/auth/core` (and also from `@jtwebb/auth`):
+
+- **`new InMemoryRateLimiter({ nowMs?, pruneEvery? })`**:
+  - **`nowMs?: () => number`**: Clock injection (tests).
+  - **`pruneEvery?: number`**: Best-effort pruning cadence (defaults to `1000` operations).
+- **`createOnAuthAttemptRateLimiter(options)`** (`OnAuthAttemptRateLimiterOptions`):
+  - **`limiter`**: The limiter instance to increment.
+  - **`count?: 'failures_only' | 'all'`**: Defaults to `'failures_only'`.
+  - **`keys(event): string[]`**: Derive keys per event (e.g. per-identifier + per-client).
+  - **`rule: { windowMs: number; max: number }`**: Fixed-window rule applied per key.
+- **`new InMemoryProgressiveDelay({ nowMs?, pruneEvery? })`**:
+  - **`nowMs?: () => number`**
+  - **`pruneEvery?: number`**: Best-effort pruning cadence (defaults to `1000` operations).
+
+### Password hashing options (core)
+
+These are exported from `@jtwebb/auth/core`:
+
+- **`hashPassword(password, { pepper?, params? })`** (`HashPasswordOptions`):
+  - **`pepper?: string | Uint8Array`**
+  - **`params?: Partial<Argon2Params>`**
+- **`verifyPassword(password, encodedHash, { pepper?, desiredParams? })`**:
+  - **`pepper?: string | Uint8Array`**
+  - **`desiredParams?: Partial<Argon2Params>`**: Used to determine `needsRehash` for upgrades.
+
+### `AuthError` options (core)
+
+`new AuthError(code, message, options)` accepts `AuthErrorOptions`:
+
+- **`cause?: unknown`**: Underlying error.
+- **`publicMessage?: string`**: Safe-to-expose UI message (prefer generic messages to avoid enumeration).
+- **`status?: number`**: Optional HTTP-ish status override for adapters.
+
 ## Core usage (server)
 
 ### 1) Implement `AuthStorage`
