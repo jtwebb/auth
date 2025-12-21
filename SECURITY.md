@@ -4,7 +4,7 @@
 
 Please do **not** open public issues for security vulnerabilities.
 
-- Email: `security@jtwebb.dev`
+- Use GitHub's Report a vulnerability advisory form
 - Include: affected version, impact, reproduction steps, and any suggested fix
 
 ## Design goals
@@ -24,4 +24,3 @@ Please do **not** open public issues for security vulnerabilities.
 - **Set CSP** and other standard headers
 - **Use a secrets manager** for: `PASSWORD_PEPPER`, `SESSION_TOKEN_HMAC_SECRET`, `BACKUP_CODE_HMAC_SECRET`
 - **Add rate limiting** on auth endpoints (especially password login and passkey start endpoints)
-
