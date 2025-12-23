@@ -3,6 +3,8 @@ import { createKyselyAuthStorage } from '@jtwebb/auth/kysely';
 import { assertSameOrigin } from '@jtwebb/auth/react-router';
 import { createReactRouterAuthAdapter } from '@jtwebb/auth/react-router';
 import { db } from './db.server';
+import { createClient } from 'redis';
+import { createRedisRateLimiter } from './redis-rate-limiter.server';
 
 export const APP_ORIGIN = process.env.APP_ORIGIN ?? 'http://localhost:5173';
 export const RP_ID = process.env.RP_ID ?? 'localhost';
@@ -53,10 +55,28 @@ export function assertCsrf(request: Request) {
   assertSameOrigin(request, allowedOrigins);
 }
 
+// Optional: use Redis to share rate limits across multiple app instances.
+// If REDIS_URL is not set, the adapter will fall back to its default in-memory limiter.
+const redisUrl = process.env.REDIS_URL;
+const redis = redisUrl ? createClient({ url: redisUrl }) : null;
+if (redis) {
+  // Fire-and-forget connect (React Router server process should manage lifecycle in real apps).
+  void redis.connect();
+}
+
 export const auth = createReactRouterAuthAdapter({
   core,
   sessionCookie,
-  totpPendingCookie
+  totpPendingCookie,
+  ...(redis
+    ? {
+        rateLimit: {
+          limiter: createRedisRateLimiter({ redis }).consume
+          // Optional (dangerous unless behind a trusted proxy/CDN that overwrites headers):
+          // trustProxyHeaders: true
+        }
+      }
+    : {})
   // Optional override:
   // csrf: { enabled: true, allowedOrigins }
 });

@@ -108,6 +108,10 @@ You can also compute the preset policy directly via `getAuthPolicyForSecurityPro
     - **`enabled?: boolean`**
     - **`store?: Pick<InMemoryProgressiveDelay, 'check' | 'recordFailure' | 'recordSuccess'>`**: Custom store (defaults to a new `InMemoryProgressiveDelay()`).
     - **`rules?: Partial<ReactRouterAuthProgressiveDelayRules>`**: Override progressive delay/lockout rules.
+- **`passwordRegister?: { ... }`**: Hooks for extending `passwordRegister` with extra fields and app-specific checks (e.g. invitation codes):
+  - **`readInput?(ctx) => input`**: Customize how registration input is read (defaults to reading `identifier` + `password` from the form body).
+  - **`beforeRegister?(input, ctx)`**: Run validation before calling `core.registerPassword` (throw `AuthError` to return a clean 4xx).
+  - **`afterRegister?(result, input, ctx)`**: Best-effort hook after successful registration (errors are swallowed).
 
 `rules` keys you can override (both fixed-window and progressive-delay variants share the same “shape” of endpoints):
 

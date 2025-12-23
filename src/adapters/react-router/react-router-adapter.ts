@@ -1,6 +1,11 @@
 import type { AuthCore } from '../../core/create-auth-core.js';
 import { AuthError, isAuthError } from '../../core/auth-error.js';
-import type { ChallengeId, SessionToken, UserId } from '../../core/auth-types.js';
+import type {
+  ChallengeId,
+  PasswordResetToken,
+  SessionToken,
+  UserId
+} from '../../core/auth-types.js';
 import type { ValidateSessionResult } from '../../core/sessions/session-types.js';
 import {
   InMemoryProgressiveDelay,
@@ -17,6 +22,57 @@ import type { SecurityProfile } from '../../core/auth-policy.js';
 import type { CookieOptions } from './cookies.js';
 import { getCookie, serializeCookie, serializeDeleteCookie } from './cookies.js';
 import { assertSameOrigin, json, readForm, readJson, redirect } from './http.js';
+
+export type PasswordRegisterActionInput = {
+  identifier: string;
+  password: string;
+  /**
+   * Extra app-defined fields (e.g. invitationCode, displayName, marketingOptIn, ...).
+   *
+   * Note: the core register API only uses identifier/password; extra fields are for hooks.
+   */
+  [key: string]: unknown;
+};
+
+export type PasswordRegisterHookContext = {
+  request: Request;
+  form: FormData;
+  /**
+   * Client identifier used for per-client limits (e.g. IP), when enabled.
+   */
+  clientId: string | null;
+  /**
+   * Session binding context passed into core registration.
+   */
+  sessionContext: { clientId?: string; userAgent?: string };
+};
+
+export type PasswordRegisterHooks = {
+  /**
+   * Customize how the adapter reads registration input (to support extra fields).
+   * Defaults to reading `identifier` and `password` from a form body.
+   */
+  readInput?: (
+    ctx: PasswordRegisterHookContext
+  ) => PasswordRegisterActionInput | Promise<PasswordRegisterActionInput>;
+  /**
+   * Run additional checks before calling `core.registerPassword` (e.g. validate/consume invite code).
+   * Throw an `AuthError` to return a clean 4xx response.
+   */
+  beforeRegister?: (
+    input: PasswordRegisterActionInput,
+    ctx: PasswordRegisterHookContext
+  ) => void | Promise<void>;
+  /**
+   * Best-effort hook after successful registration. Errors are swallowed to avoid creating an account
+   * but returning an error to the client.
+   */
+  afterRegister?: (
+    result: Awaited<ReturnType<AuthCore['registerPassword']>>,
+    input: PasswordRegisterActionInput,
+    ctx: PasswordRegisterHookContext
+  ) => void | Promise<void>;
+};
 
 export type ReactRouterAuthAdapterOptions = {
   core: AuthCore;
@@ -114,6 +170,10 @@ export type ReactRouterAuthAdapterOptions = {
       rules?: Partial<ReactRouterAuthProgressiveDelayRules>;
     };
   };
+  /**
+   * Hooks for customizing `passwordRegister` (extra fields, invitation codes, business logic).
+   */
+  passwordRegister?: PasswordRegisterHooks;
 };
 
 export type ReactRouterAuthRateLimitRules = {
@@ -639,24 +699,52 @@ export function createReactRouterAuthAdapter(
     try {
       const form = await readForm(request);
       assertDoubleSubmitCsrf(request, String(form.get(csrfFormFieldName) ?? ''));
-      const identifier = String(form.get('identifier') ?? '');
-      const password = String(form.get('password') ?? '');
-      idKey = `password_register:id:${identifier}`;
       const clientId = getClientId(request);
       clientKey = clientId ? `password_register:client:${clientId}` : null;
+      const sessionContext = sessionContextFromRequest(request);
+
+      const hooks = options.passwordRegister;
+      const input: PasswordRegisterActionInput = hooks?.readInput
+        ? await hooks.readInput({ request, form, clientId, sessionContext })
+        : {
+            identifier: String(form.get('identifier') ?? ''),
+            password: String(form.get('password') ?? '')
+          };
+
+      const identifier = String(input.identifier ?? '');
+      const password = String(input.password ?? '');
+      idKey = `password_register:id:${identifier}`;
 
       enforceProgressiveDelay(idKey);
       if (clientKey) enforceProgressiveDelay(clientKey);
 
       enforceRateLimit(idKey, rules.passwordRegisterPerIdentifier);
       if (clientKey) enforceRateLimit(clientKey, rules.passwordRegisterPerClient);
-      const { session } = await options.core.registerPassword({
+
+      if (hooks?.beforeRegister) {
+        await hooks.beforeRegister(input, { request, form, clientId, sessionContext });
+      }
+      const result = await options.core.registerPassword({
         identifier,
         password,
-        sessionContext: sessionContextFromRequest(request)
+        sessionContext
       });
+      const { session } = result;
       recordSuccess(idKey);
       if (clientKey) recordSuccess(clientKey);
+
+      if (hooks?.afterRegister) {
+        try {
+          await hooks.afterRegister(result, input, {
+            request,
+            form,
+            clientId,
+            sessionContext
+          });
+        } catch {
+          // swallow (see docstring)
+        }
+      }
       const res = redirect(opts.redirectTo ?? '/');
       res.headers.append(
         'set-cookie',
@@ -725,7 +813,10 @@ export function createReactRouterAuthAdapter(
       if (clientKey) enforceProgressiveDelay(clientKey);
       if (clientKey) enforceRateLimit(clientKey, rules.passwordResetFinishPerClient);
 
-      await options.core.resetPasswordWithToken({ token: token as any, newPassword });
+      await options.core.resetPasswordWithToken({
+        token: token as unknown as PasswordResetToken,
+        newPassword
+      });
       if (clientKey) recordSuccess(clientKey);
 
       if (opts.redirectTo) return redirect(opts.redirectTo);

@@ -361,6 +361,66 @@ describe('adapters/react-router/react-router-adapter', () => {
     expect(r2.headers.get('retry-after')).toBeTruthy();
   });
 
+  it('supports passwordRegister hooks (extra fields + blocking beforeRegister)', async () => {
+    let calls = 0;
+    const core = {
+      policy: { passkey: { origins: ['https://example.com'] } },
+      registerPassword: async () => {
+        calls++;
+        return { userId: 'u1', session: { sessionToken: 't', sessionTokenHash: 'h' } };
+      }
+    } as any;
+
+    const adapter = createReactRouterAuthAdapter({
+      core,
+      sessionCookie: { name: 'sid', path: '/', httpOnly: true, secure: true, sameSite: 'lax' },
+      csrf: { enabled: false },
+      rateLimit: { enabled: false },
+      passwordRegister: {
+        readInput: ({ form }) => ({
+          identifier: String(form.get('identifier') ?? '').toLowerCase(),
+          password: String(form.get('password') ?? ''),
+          invitationCode: String(form.get('invitationCode') ?? '')
+        }),
+        beforeRegister: input => {
+          if (input.invitationCode !== 'INVITE-OK') {
+            throw new AuthError('forbidden', 'Invalid invitation code', {
+              status: 403,
+              publicMessage: 'Invalid invitation code'
+            });
+          }
+        }
+      }
+    });
+
+    const reqBad = new Request('https://example.com/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        identifier: 'A@EXAMPLE.COM',
+        password: 'pw',
+        invitationCode: 'NOPE'
+      })
+    });
+    const resBad = await adapter.actions.passwordRegister(reqBad);
+    expect(resBad.status).toBe(403);
+    expect(calls).toBe(0);
+
+    const reqOk = new Request('https://example.com/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        identifier: 'A@EXAMPLE.COM',
+        password: 'pw',
+        invitationCode: 'INVITE-OK'
+      })
+    });
+    const resOk = await adapter.actions.passwordRegister(reqOk);
+    expect(resOk.status).toBe(302);
+    expect(resOk.headers.get('set-cookie')).toMatch(/sid=/);
+    expect(calls).toBe(1);
+  });
+
   it('rate limits passwordResetStart by identifier', async () => {
     let nowMs = 0;
     const limiter = new InMemoryRateLimiter({ nowMs: () => nowMs });

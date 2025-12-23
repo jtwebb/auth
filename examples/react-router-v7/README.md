@@ -32,7 +32,7 @@ npx create-react-router@latest --template remix-run/react-router-templates/minim
 3. Install deps in your app:
 
 ```bash
-npm i @jtwebb/auth kysely pg @simplewebauthn/browser
+npm i @jtwebb/auth kysely pg @simplewebauthn/browser redis
 ```
 
 4. Configure env:
@@ -44,6 +44,7 @@ npm i @jtwebb/auth kysely pg @simplewebauthn/browser
 - **`TOTP_ENCRYPTION_KEY`**: required to enable TOTP enrollment/verification
 - **`APP_ORIGIN`**: e.g. `http://localhost:5173` (used for CSRF Origin checks + passkey origins)
 - **`RP_ID`**: e.g. `localhost` (passkey relying party id)
+- **`REDIS_URL`** (optional): if set, the example will use Redis for adapter rate limiting (shared across instances)
 
 5. Apply auth DB migrations (Kysely migration functions shipped by this package):
 
@@ -53,3 +54,4 @@ npm i @jtwebb/auth kysely pg @simplewebauthn/browser
 
 - **CSRF**: this example uses the library’s Origin checks (`assertSameOrigin`). Your forms/fetchers must be same-origin.
 - **Kysely adapter**: uses `returning(...)` for consume-once operations (Postgres works well).
+- **Redis rate limiting**: see `app/redis-rate-limiter.server.ts` and the `rateLimit.limiter` wiring in `app/auth.server.ts`.
